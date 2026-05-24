@@ -6,12 +6,69 @@
 
 ## Overview
 
-Six decisions govern the technical foundation of this project. Each 
+Seven decisions govern the technical foundation of this project. Each 
 is documented here with the options evaluated, the decision made, 
 and the rationale — including why the alternatives were rejected. 
 These decisions are locked for v1. Revisiting them is only warranted 
 if a constraint changes (cost, hosting, API availability) or a 
 post-MVP feature makes the current choice untenable.
+
+Decisions 1–6 were made during the PM documentation phase. Decision 0 
+(development environment) was added after the llm-eval-toolkit project 
+completed — that build surfaced GitHub Codespaces as the correct 
+environment for this project, replacing the original personal machine 
+assumption.
+
+---
+
+## Decision 0 — Development Environment
+
+**The question:** Where is application code written, tested, and 
+committed from?
+
+### Options evaluated
+
+| Option | IP ownership risk | Setup effort | Cost | Notes |
+|--------|------------------|-------------|------|-------|
+| Work laptop | High — Microsoft IP policy creates ambiguity for code written alongside work projects | None | ₹0 | Ruled out unconditionally |
+| Personal machine | None | Medium — local Python env, git config, editor setup | ₹0 | Viable but adds overhead |
+| GitHub Codespaces | None | Minimal — opens from repo in one click | Free (120 core-hours/month) | Confirmed working in llm-eval-toolkit |
+| Replit | None | Low | Free tier depletes unpredictably with AI features | Platform-specific deploy config |
+
+### Decision: GitHub Codespaces
+
+Microsoft's IP ownership policy means any code written on a work 
+laptop in the same environment as work projects creates ambiguity 
+about ownership. Work laptop is ruled out unconditionally — this 
+applies to this project exactly as it did to llm-eval-toolkit.
+
+Personal machine is viable but adds local environment setup overhead 
+that Codespaces eliminates. Codespaces opens directly from the GitHub 
+repo in one click — full Linux container, terminal, Python runtime, 
+pip, git — identical to local development but running in GitHub's 
+cloud. 120 free core-hours per month covers approximately 8 
+hours/week of active development on the default 2-core machine, 
+which matches the build schedule in the roadmap.
+
+**API key management:** `GOOGLE_API_KEY_v2` is stored as a GitHub 
+Codespaces Secret in account settings and auto-injects into every 
+Codespace session — the key never needs to be typed and is never 
+committed to the codebase. The same key is added to Streamlit 
+Community Cloud secrets for the deployed app.
+
+**Codespace management rules (learned from llm-eval-toolkit):**
+- Stop the Codespace at the end of every session — hours drain even 
+  when the browser tab is closed, not just when the terminal is active
+- Track usage at github.com/settings/billing/summary → Codespaces
+- Never edit files directly on the GitHub browser when a Codespace 
+  is active — creates git divergence that requires a force push to resolve
+- Always run `git pull` before starting a new Codespace session if 
+  any GitHub browser edits were made since the last session
+
+**Why not Replit:** Replit's deployment configuration is 
+platform-specific and complicates migration to Streamlit Community 
+Cloud. The free tier's AI agent compute credits deplete 
+unpredictably, making cost control harder.
 
 ---
 
@@ -61,41 +118,49 @@ consolidation pass, and pattern summary?
 
 | Option | Cost | Rate limit | Quality | Notes |
 |--------|------|-----------|---------|-------|
-| Google Gemini 2.5 Flash-Lite (free tier) | ₹0 | 1,000 req/day, 15 RPM | Good for structured classification | No credit card required |
-| Google Gemini 2.5 Flash (free tier) | ₹0 | 500 req/day, 10 RPM | Better reasoning, slower | Lower daily limit, tighter RPM |
+| Google Gemini 3.1 Flash-Lite (free tier) | ₹0 | 500 RPD, 15 RPM | Good for structured classification | Confirmed in AI Studio before committing |
+| Google Gemini 2.5 Flash-Lite (free tier) | ₹0 | Advertised 1,000 RPD — actual cap for new projects is 20 RPD | Good | Rejected — free tier trap discovered in llm-eval-toolkit build |
+| Google Gemini 2.5 Flash (free tier) | ₹0 | 500 RPD, 10 RPM | Better reasoning | Tighter RPM than 3.1 Flash-Lite |
 | Anthropic Claude (API) | Pay per token | No free tier | Excellent | Requires credit card; separate from Claude Pro subscription |
 | OpenAI GPT-4o mini | Pay per token | No meaningful free tier | Good | Requires credit card |
-| Ollama (local LLM) | ₹0 | Unlimited | Variable | Requires local GPU; not deployable to Streamlit Cloud |
+| Ollama (local LLM) | ₹0 | Unlimited | Variable | Not deployable to Streamlit Community Cloud |
 
-### Decision: Google Gemini 2.5 Flash-Lite (free tier)
+### Decision: Google Gemini 3.1 Flash-Lite (free tier)
+
+**Hard-learned lesson from llm-eval-toolkit:** The original plan for 
+that project used `gemini-2.5-flash-lite`, documented as 1,000 RPD 
+free. During Milestone 4 batch testing, a `429 RESOURCE_EXHAUSTED` 
+error revealed the actual free tier cap for new projects was 20 RPD. 
+The switch to `gemini-3.1-flash-lite` (500 RPD confirmed in AI Studio 
+dashboard) was made mid-build. This project starts with 3.1 Flash-Lite 
+to avoid the same trap.
+
+**Verification step before writing any engine code:** Open Google AI 
+Studio → API keys → Rate limits dashboard → confirm the actual RPD 
+and RPM for `gemini-3.1-flash-lite` on the account. Do not rely on 
+documentation — check the live dashboard.
 
 The cost constraint for this project is ₹0 per month. Gemini 
-2.5 Flash-Lite is the only option that meets this constraint 
-while providing sufficient reasoning quality for structured 
-classification tasks and being deployable to Streamlit Community 
-Cloud via an API key in Streamlit secrets.
+3.1 Flash-Lite meets this constraint while providing sufficient 
+reasoning quality for structured classification tasks. At 10 rows 
+per batch, a 100-row run requires 12 API calls maximum. At 500 RPD 
+and 15 RPM, this fits comfortably within a single session with 
+headroom for multiple test runs and live demo usage.
 
-At 10 rows per batch, a 100-row run requires 10 categorisation 
-calls plus 1 consolidation call — 11 calls total per session. 
-At the 15 RPM free tier limit, this fits comfortably within a 
-single minute. The 1,000 req/day limit provides headroom for 
-multiple test runs and live demo usage without approaching the cap.
+**Model string:** `gemini-3.1-flash-lite`
 
-**Why not Gemini 2.5 Flash:** Better reasoning quality, but 10 RPM 
-and 500 req/day is tighter. For a 100-row run, 10 RPM adds 
-meaningful latency. Flash-Lite is sufficient for classification 
-tasks that have a well-defined rubric in the prompt — the quality 
-gap does not justify the tighter limits.
+**Why not Gemini 2.5 Flash-Lite:** 20 RPD actual free tier cap on 
+new projects makes it unusable for a demo tool. A hiring manager 
+exploring all three sample tiles in one session would exhaust the 
+daily limit immediately.
 
 **Why not Claude API:** Excellent quality but requires a credit card 
-and pay-per-token billing. The project's ₹0 cost constraint makes 
-this a non-starter for v1. Claude Pro subscription (used for 
-building and iterating in chat) does not cover API inference costs 
-in deployed applications.
+and pay-per-token billing. The ₹0 cost constraint makes this a 
+non-starter. Claude Pro subscription covers building and iterating 
+in chat — it does not cover API inference in deployed applications.
 
 **Why not Ollama:** Local models cannot be deployed to Streamlit 
-Community Cloud. A public shareable URL is a hard requirement — 
-a locally-run app is not a portfolio asset.
+Community Cloud. A public shareable URL is a hard requirement.
 
 ---
 
@@ -244,12 +309,24 @@ streamlit
 pandas
 openpyxl
 plotly
-google-generativeai
+google-genai
 ```
 
-Five dependencies. No pinned versions at this stage — pinning 
-happens in `requirements.txt` after Milestone 1 confirms 
-compatibility across all five packages on Streamlit Community Cloud.
+Five dependencies. `google-genai` replaces `google-generativeai` — 
+the latter is deprecated, throws warnings on install, and uses a 
+different import structure and API call format. This was discovered 
+during the llm-eval-toolkit build; this project starts with the 
+correct SDK from day one.
+
+**Python version:** Pin to **3.12** explicitly during the first 
+Streamlit Community Cloud deployment. Streamlit Cloud defaults to 
+3.14 which caused a deployment failure in llm-eval-toolkit that 
+required a redeploy to fix. Set it manually in the deployment 
+settings before the first push.
+
+No pinned package versions at this stage — pinning happens in 
+`requirements.txt` after Milestone 1 confirms compatibility across 
+all five packages on Streamlit Community Cloud.
 
 ---
 
@@ -257,12 +334,15 @@ compatibility across all five packages on Streamlit Community Cloud.
 
 | Decision | Locked choice | What would reopen it |
 |----------|-------------|---------------------|
+| Dev environment | GitHub Codespaces | Change in Microsoft IP policy; Codespaces free tier eliminated |
 | UI framework | Streamlit | Post-MVP need for real-time updates or complex UI state |
-| LLM engine | Gemini 2.5 Flash-Lite free tier | Gemini free tier discontinued or quality proven insufficient in M1 |
+| LLM engine | Gemini 3.1 Flash-Lite free tier | Free tier reduced below 150 RPD; quality proven insufficient in M1 |
+| SDK | `google-genai` | Google releases a replacement SDK |
 | Batch size | 10 rows | M1 testing shows unacceptable label inconsistency |
 | File parsing | Pandas + openpyxl | Addition of a new input format not supported by this stack |
 | Chart library | Plotly | Post-MVP drill-down interaction requiring a different rendering model |
 | Hosting | Streamlit Community Cloud | Paid tier needed for compute or uptime guarantees |
+| Python version | 3.12 (pinned on Streamlit Cloud) | Compatibility issue with a required dependency |
 
 ---
 
