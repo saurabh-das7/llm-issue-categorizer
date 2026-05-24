@@ -3,7 +3,7 @@ Milestone 0 — API verification script
 --------------------------------------
 Run this to confirm:
   1. google-genai SDK is installed correctly
-  2. GOOGLE_API_KEY_v2 Codespaces secret is being injected
+  2. GOOGLE_API_KEY_V2 Codespaces secret is being injected
   3. gemini-3.1-flash-lite model is accessible on the free tier
   4. A structured JSON response can be parsed cleanly
 
@@ -36,10 +36,10 @@ def run_test():
         sys.exit(1)
 
     # --- Step 2: API key ---
-    api_key = os.environ.get("GOOGLE_API_KEY_v2")
+    api_key = os.environ.get("GOOGLE_API_KEY_V2")
     if not api_key:
-        print("API key: FAILED — GOOGLE_API_KEY_v2 not found in environment")
-        print("Check that the Codespaces Secret is named exactly GOOGLE_API_KEY_v2")
+        print("API key: FAILED — GOOGLE_API_KEY_V2 not found in environment")
+        print("Check that the Codespaces Secret is named exactly GOOGLE_API_KEY_V2")
         sys.exit(1)
     print("API key found: OK")
 
