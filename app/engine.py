@@ -16,6 +16,7 @@ MIN_BUCKET_THRESHOLD = 5  # minimum rows for a named category to survive
 
 # ── Gemini client ──────────────────────────────────────────────────────────────
 
+
 def get_client():
     """
     Initialise and return the Gemini client.
@@ -76,7 +77,8 @@ def parse_file(file):
             )
 
         # ── Normalise column names ─────────────────────────────────────────────
-        df.columns = [col.strip().lower().replace(" ", "_") for col in df.columns]
+        df.columns = [col.strip().lower().replace(" ", "_")
+                      for col in df.columns]
 
         # ── Check required columns ─────────────────────────────────────────────
         missing = REQUIRED_COLUMNS - set(df.columns)
@@ -168,7 +170,8 @@ def run_categorisation(df, context, mode, categories=None, progress_callback=Non
 
             for i, result in enumerate(results):
                 row_idx = start + i
-                df.at[row_idx, "new_category"] = result.get("new_category", "Uncategorised")
+                df.at[row_idx, "new_category"] = result.get(
+                    "new_category", "Uncategorised")
                 df.at[row_idx, "confidence"] = result.get("confidence", "Low")
                 df.at[row_idx, "reasoning"] = result.get("reasoning", "")
 
@@ -509,11 +512,17 @@ STAGE B — Using the Stage A summaries, identify merge opportunities:
 - AUTO_MERGE: categories that are near-identical in meaning. Merge these.
 - FLAG: categories that may overlap but you are not certain. Flag only (max 3).
 
+STAGE C — Write a 2-3 sentence plain-English narrative summarising the full results.
+Cover: total tickets processed, number of categories, the dominant theme and its share,
+and the most important signal from the uncategorised bucket (if any).
+Write it as if briefing a PM who has not seen the data. Be specific, not generic.
+
 Also analyse the Uncategorised bucket and identify the top 2-3 themes
 present in those tickets. Write as observations, not category names.
 
 Return JSON only — no other text, no markdown fences:
 {{
+  "narrative": "2-3 sentence plain English summary of the full results",
   "category_summaries": {{"category name": "one sentence summary", ...}},
   "auto_merges": [{{"merge_these": ["Category A", "Category B"], "into": "Merged Name"}}, ...],
   "merge_flags": ["plain English flag", ...],
@@ -524,7 +533,8 @@ Return JSON only — no other text, no markdown fences:
 def _build_multi_tag_prompt(context, categories, batch):
     """Build the multi-tag pass prompt."""
 
-    cat_list = "\n".join(f"  - {c}" for c in categories if c != "Uncategorised")
+    cat_list = "\n".join(
+        f"  - {c}" for c in categories if c != "Uncategorised")
 
     ticket_lines = []
     for row in batch:
@@ -580,7 +590,8 @@ def _parse_batch_response(raw, batch):
         cleaned = _clean_json_response(raw)
         results = json.loads(cleaned)
         if len(results) != len(batch):
-            raise ValueError(f"Expected {len(batch)} results, got {len(results)}")
+            raise ValueError(
+                f"Expected {len(batch)} results, got {len(results)}")
         return results
     except Exception:
         return [
@@ -614,7 +625,8 @@ def _parse_multi_tag_response(raw, batch):
         cleaned = _clean_json_response(raw)
         results = json.loads(cleaned)
         if len(results) != len(batch):
-            raise ValueError(f"Expected {len(batch)} results, got {len(results)}")
+            raise ValueError(
+                f"Expected {len(batch)} results, got {len(results)}")
         return results
     except Exception:
         return [{"ticket_id": row["ticket_id"], "tags": []} for row in batch]
