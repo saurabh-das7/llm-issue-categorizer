@@ -10,7 +10,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from engine import parse_file, run_categorisation, run_consolidation, run_multi_tag
+from engine import parse_file, run_categorisation, run_consolidation, run_multi_tag, run_auto_suggest
 from samples import SAMPLES, get_sample_df, get_sample_context
 
 # ── Page configuration ─────────────────────────────────────────────────────────
@@ -89,6 +89,8 @@ def init_state():
         "context": "",
         "mode": "no_suggestions",
         "manual_categories": "",
+        "auto_suggest_categories": [],
+        "auto_suggest_done": False,
         "result_df": None,
         "consolidation": None,
         "mt_df": None,
@@ -238,7 +240,7 @@ if st.session_state.step >= 2 and st.session_state.df is not None and st.session
             "desc": "You define starting categories. LLM maps to them and creates new buckets as needed."
         },
         "auto_suggest": {
-            "label": f"Auto-suggest {'(coming in next version)' if as_disabled else ''}",
+            "label": "Auto-suggest" + (" (requires >50 rows)" if as_disabled else ""),
             "desc": "We sample 25% of your rows and propose a taxonomy for you to review before the full run.",
         }
     }
@@ -246,45 +248,170 @@ if st.session_state.step >= 2 and st.session_state.df is not None and st.session
     mode_labels = [v["label"] for v in mode_options.values()]
     mode_keys = list(mode_options.keys())
 
-    # Radio for mode selection
     selected_mode_label = st.radio(
         "Select mode",
         options=mode_labels,
-        index=0,
+        index=mode_keys.index(st.session_state.mode) if st.session_state.mode in mode_keys else 0,
         key="mode_radio",
         label_visibility="collapsed"
     )
     selected_mode = mode_keys[mode_labels.index(selected_mode_label)]
 
-    # Show description
-    st.caption(mode_options[selected_mode]["desc"])
+    # Reset auto-suggest state if mode changed away from it
+    if selected_mode != st.session_state.mode:
+        st.session_state.auto_suggest_done = False
+        st.session_state.auto_suggest_categories = []
 
     st.session_state.mode = selected_mode
+    st.caption(mode_options[selected_mode]["desc"])
 
-    # Manual list textarea — M3 (shown as coming soon for now)
+    # ── Manual List configuration ──────────────────────────────────────────────
     if selected_mode == "manual_list":
-        st.info("Manual list mode coming in the next version. Select 'No suggestions' to run now.", icon="ℹ️")
+        st.markdown("<br>", unsafe_allow_html=True)
+        manual_input = st.text_area(
+            "Your categories — one per line",
+            value=st.session_state.manual_categories,
+            height=160,
+            placeholder="Payment failure\nApp crash\nRefund dispute\nKYC issue\nFraud / unauthorized",
+            key="manual_textarea"
+        )
+        st.session_state.manual_categories = manual_input
 
-    if selected_mode == "auto_suggest":
-        st.info("Auto-suggest mode coming in the next version. Select 'No suggestions' to run now.", icon="ℹ️")
+        # Parse and validate
+        cat_lines = [l.strip() for l in manual_input.split("\n") if l.strip()]
+        cat_count = len(cat_lines)
 
-    # Run button — only enabled for No Suggestions and valid context
-    context_valid = len(st.session_state.context.strip()) >= 10
-    run_ready = selected_mode == "no_suggestions" and context_valid
+        if cat_count == 0:
+            st.caption("0 categories — minimum 2 required")
+        elif cat_count == 1:
+            st.caption("1 category — minimum 2 required")
+        elif cat_count > 15:
+            st.warning(f"{cat_count} categories entered — maximum is 15. Please remove some.", icon="⚠️")
+        else:
+            st.caption(f"✅ {cat_count} categories entered")
 
-    if not context_valid:
-        st.warning("Please enter a data description (at least 10 characters) before running.", icon="⚠️")
+        st.caption(
+            "The LLM will map tickets to your categories and may create additional "
+            "categories for patterns not covered, provided they have enough tickets."
+        )
 
-    run_clicked = st.button(
-        "▶ Run categorisation",
-        disabled=not run_ready,
-        type="primary",
-        key="run_btn"
-    )
+        context_valid = len(st.session_state.context.strip()) >= 10
+        run_ready = cat_count >= 2 and cat_count <= 15 and context_valid
+        if not context_valid:
+            st.warning("Please enter a data description above before running.", icon="⚠️")
 
-    if run_clicked:
-        st.session_state.step = 3
-        st.rerun()
+        if st.button("▶ Run categorisation", disabled=not run_ready,
+                     type="primary", key="run_btn_ml"):
+            st.session_state.step = 3
+            st.rerun()
+
+    # ── Auto-Suggest configuration ─────────────────────────────────────────────
+    elif selected_mode == "auto_suggest":
+        if as_disabled:
+            st.info(
+                "Auto-suggest requires more than 50 rows to sample meaningfully. "
+                "Your dataset has fewer rows — please use No suggestions or Manual list instead.",
+                icon="ℹ️"
+            )
+        else:
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            if not st.session_state.auto_suggest_done:
+                # Pre-generation state
+                st.markdown(
+                    "We'll sample 25% of your tickets and propose a starting taxonomy. "
+                    "Takes ~15–20 seconds."
+                )
+                if st.button("Generate suggestions from your data", key="gen_suggest_btn"):
+                    with st.spinner("Sampling tickets and generating taxonomy..."):
+                        suggestions = run_auto_suggest(
+                            st.session_state.df,
+                            st.session_state.context
+                        )
+                    if suggestions:
+                        st.session_state.auto_suggest_categories = suggestions
+                        st.session_state.auto_suggest_done = True
+                        st.rerun()
+                    else:
+                        st.error(
+                            "Could not generate suggestions — please try again or "
+                            "switch to Manual list mode."
+                        )
+            else:
+                # Post-generation: editable category list
+                st.markdown(
+                    "**Suggested taxonomy** — rename, delete, or add categories "
+                    "before running the full categorisation."
+                )
+                st.caption(
+                    "The LLM can create additional categories during the full run "
+                    "for patterns not captured here, as long as they have enough tickets."
+                )
+
+                # Render editable list using session state
+                cats = st.session_state.auto_suggest_categories
+                updated_cats = []
+
+                for idx, cat in enumerate(cats):
+                    col_input, col_del = st.columns([8, 1])
+                    with col_input:
+                        new_val = st.text_input(
+                            f"Category {idx + 1}",
+                            value=cat,
+                            key=f"as_cat_{idx}",
+                            label_visibility="collapsed"
+                        )
+                        if new_val.strip():
+                            updated_cats.append(new_val.strip())
+                    with col_del:
+                        if st.button("✕", key=f"del_cat_{idx}"):
+                            # Remove this category and rerun
+                            cats.pop(idx)
+                            st.session_state.auto_suggest_categories = cats
+                            st.rerun()
+
+                st.session_state.auto_suggest_categories = updated_cats
+
+                # Add category
+                if st.button("+ Add category", key="add_cat_btn"):
+                    st.session_state.auto_suggest_categories.append("")
+                    st.rerun()
+
+                # Validation and run
+                valid_cats = [c for c in updated_cats if c]
+                cat_count = len(valid_cats)
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                if cat_count < 2:
+                    st.warning("Please keep at least 2 categories.", icon="⚠️")
+
+                context_valid = len(st.session_state.context.strip()) >= 10
+                run_ready = cat_count >= 2 and context_valid
+
+                if st.button("▶ Run full categorisation", disabled=not run_ready,
+                             type="primary", key="run_btn_as"):
+                    st.session_state.manual_categories = "\n".join(valid_cats)
+                    st.session_state.mode = "auto_suggest"
+                    st.session_state.step = 3
+                    st.rerun()
+
+                if st.button("↺ Re-generate suggestions", key="regen_btn"):
+                    st.session_state.auto_suggest_done = False
+                    st.session_state.auto_suggest_categories = []
+                    st.rerun()
+
+    # ── No Suggestions run button ──────────────────────────────────────────────
+    else:
+        context_valid = len(st.session_state.context.strip()) >= 10
+        if not context_valid:
+            st.warning(
+                "Please enter a data description (at least 10 characters) before running.",
+                icon="⚠️"
+            )
+        if st.button("▶ Run categorisation", disabled=not context_valid,
+                     type="primary", key="run_btn_ns"):
+            st.session_state.step = 3
+            st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -319,12 +446,22 @@ if st.session_state.step >= 3 and st.session_state.result_df is None:
         else:
             status_text.markdown(f"Processing batch **{batch_num}** of **{total}**...")
 
+    # Determine categories to pass based on mode
+    mode = st.session_state.mode
+    if mode in ("manual_list", "auto_suggest"):
+        categories = [
+            l.strip() for l in st.session_state.manual_categories.split("\n")
+            if l.strip()
+        ]
+    else:
+        categories = None
+
     # Run categorisation
     result_df = run_categorisation(
         df=df,
         context=context,
-        mode="no_suggestions",
-        categories=None,
+        mode=mode,
+        categories=categories,
         progress_callback=update_progress
     )
 

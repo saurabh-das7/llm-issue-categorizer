@@ -16,7 +16,6 @@ MIN_BUCKET_THRESHOLD = 5  # minimum rows for a named category to survive
 
 # ── Gemini client ──────────────────────────────────────────────────────────────
 
-
 def get_client():
     """
     Initialise and return the Gemini client.
@@ -77,8 +76,7 @@ def parse_file(file):
             )
 
         # ── Normalise column names ─────────────────────────────────────────────
-        df.columns = [col.strip().lower().replace(" ", "_")
-                      for col in df.columns]
+        df.columns = [col.strip().lower().replace(" ", "_") for col in df.columns]
 
         # ── Check required columns ─────────────────────────────────────────────
         missing = REQUIRED_COLUMNS - set(df.columns)
@@ -170,8 +168,7 @@ def run_categorisation(df, context, mode, categories=None, progress_callback=Non
 
             for i, result in enumerate(results):
                 row_idx = start + i
-                df.at[row_idx, "new_category"] = result.get(
-                    "new_category", "Uncategorised")
+                df.at[row_idx, "new_category"] = result.get("new_category", "Uncategorised")
                 df.at[row_idx, "confidence"] = result.get("confidence", "Low")
                 df.at[row_idx, "reasoning"] = result.get("reasoning", "")
 
@@ -362,6 +359,66 @@ def run_multi_tag(df, context, categories, progress_callback=None):
     return df
 
 
+# ── Function 5: run_auto_suggest ──────────────────────────────────────────────
+
+def run_auto_suggest(df, context):
+    """
+    Sample 25% of rows and ask the LLM to propose a starting taxonomy.
+    Used in Auto-Suggest mode before the full categorisation run.
+
+    Parameters:
+        df: clean DataFrame from parse_file()
+        context: one-line description of the data type (str)
+
+    Returns:
+        list of suggested category name strings
+    """
+    client = get_client()
+
+    # Sample 25% — minimum 13 rows, maximum 25 rows
+    sample_size = max(13, min(25, int(len(df) * 0.25)))
+    sample_df = df.sample(n=sample_size, random_state=42)
+
+    rows = sample_df.to_dict(orient="records")
+    ticket_lines = []
+    for row in rows:
+        ticket_lines.append(
+            f"- {row['issue_description']} "
+            f"[current label: {row['current_label']}]"
+        )
+    tickets_section = "\n".join(ticket_lines)
+
+    prompt = f"""You are helping a PM categorise operational support tickets.
+
+Context: {context}
+
+Below is a sample of {sample_size} tickets from a dataset. Based on these tickets,
+propose a taxonomy of 5-10 distinct category names that would cover the full dataset.
+
+Requirements:
+- Each category should be distinct and non-overlapping
+- Names should be clear and descriptive (3-6 words each)
+- Cover the major issue types visible in this sample
+- Anticipate patterns that may exist in the full dataset beyond this sample
+
+Sample tickets:
+{tickets_section}
+
+Return a JSON array of category name strings only — no other text, no markdown fences:
+["Category One", "Category Two", ...]"""
+
+    try:
+        response = _call_gemini(client, prompt)
+        cleaned = _clean_json_response(response)
+        categories = json.loads(cleaned)
+        # Ensure it's a flat list of strings
+        if isinstance(categories, list):
+            return [str(c).strip() for c in categories if c]
+        return []
+    except Exception:
+        return []
+
+
 # ── Prompt builders ────────────────────────────────────────────────────────────
 
 def _build_categorisation_prompt(context, mode, accumulated_categories, batch):
@@ -467,8 +524,7 @@ Return JSON only — no other text, no markdown fences:
 def _build_multi_tag_prompt(context, categories, batch):
     """Build the multi-tag pass prompt."""
 
-    cat_list = "\n".join(
-        f"  - {c}" for c in categories if c != "Uncategorised")
+    cat_list = "\n".join(f"  - {c}" for c in categories if c != "Uncategorised")
 
     ticket_lines = []
     for row in batch:
@@ -524,8 +580,7 @@ def _parse_batch_response(raw, batch):
         cleaned = _clean_json_response(raw)
         results = json.loads(cleaned)
         if len(results) != len(batch):
-            raise ValueError(
-                f"Expected {len(batch)} results, got {len(results)}")
+            raise ValueError(f"Expected {len(batch)} results, got {len(results)}")
         return results
     except Exception:
         return [
@@ -559,8 +614,7 @@ def _parse_multi_tag_response(raw, batch):
         cleaned = _clean_json_response(raw)
         results = json.loads(cleaned)
         if len(results) != len(batch):
-            raise ValueError(
-                f"Expected {len(batch)} results, got {len(results)}")
+            raise ValueError(f"Expected {len(batch)} results, got {len(results)}")
         return results
     except Exception:
         return [{"ticket_id": row["ticket_id"], "tags": []} for row in batch]
