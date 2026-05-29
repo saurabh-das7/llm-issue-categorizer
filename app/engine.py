@@ -47,57 +47,46 @@ def parse_file(file):
             - error is a plain-English error string if failed, None if successful
 
     Column behaviour:
-        - Column names are lowercased and whitespace-stripped on import
-        - Required columns: ticket_id, issue_description, current_label
-        - Optional column: resolution_notes (added as empty string if missing)
+        - Only issue_description is required
+        - ticket_id is auto-generated (Row 1, 2, 3...) if not present
+        - current_label defaults to empty string if not present
+        - resolution_notes defaults to empty string if not present
         - Row limit: 100 rows maximum (not including header)
     """
-    REQUIRED_COLUMNS = {"ticket_id", "issue_description", "current_label"}
     MAX_ROWS = 100
 
     try:
         filename = file.name.lower()
 
-        # ── Read file based on extension ───────────────────────────────────────
         if filename.endswith(".csv"):
             df = pd.read_csv(file)
-
         elif filename.endswith(".xlsx"):
             df = pd.read_excel(file, engine="openpyxl")
-
         elif filename.endswith(".txt"):
-            # Expected format: pipe-delimited
-            # ticket_id | issue_description | current_label | resolution_notes
             df = pd.read_csv(file, sep="|")
-
         else:
             return None, (
                 f"Unsupported file format: '{file.name}'. "
                 "Please upload a CSV, Excel (.xlsx), or TXT (pipe-delimited) file."
             )
 
-        # ── Normalise column names ─────────────────────────────────────────────
+        # Normalise column names
         df.columns = [col.strip().lower().replace(" ", "_")
                       for col in df.columns]
 
-        # ── Check required columns ─────────────────────────────────────────────
-        missing = REQUIRED_COLUMNS - set(df.columns)
-        if missing:
-            missing_display = ", ".join(sorted(missing))
+        # Only issue_description is required
+        if "issue_description" not in df.columns:
             return None, (
-                f"Missing required column(s): {missing_display}. "
+                "Missing required column: issue_description. "
+                "This is the only required column — it contains the text to categorise. "
                 "Please check your file and re-upload."
             )
 
-        # ── Add optional column if missing ─────────────────────────────────────
-        if "resolution_notes" not in df.columns:
-            df["resolution_notes"] = ""
-
-        # ── Drop completely empty rows ─────────────────────────────────────────
+        # Drop rows with empty issue_description
         df = df.dropna(subset=["issue_description"])
+        df = df[df["issue_description"].astype(str).str.strip() != ""]
         df = df.reset_index(drop=True)
 
-        # ── Row count check ────────────────────────────────────────────────────
         if len(df) == 0:
             return None, "No data rows found in this file. Please check the file and re-upload."
 
@@ -108,7 +97,17 @@ def parse_file(file):
                 "Please trim the file and re-upload."
             )
 
-        # ── Clean up data ──────────────────────────────────────────────────────
+        # Auto-generate ticket_id if missing
+        if "ticket_id" not in df.columns:
+            df["ticket_id"] = [f"Row {i+1}" for i in range(len(df))]
+
+        # Add optional columns if missing
+        if "current_label" not in df.columns:
+            df["current_label"] = ""
+        if "resolution_notes" not in df.columns:
+            df["resolution_notes"] = ""
+
+        # Clean all fields
         for col in ["ticket_id", "issue_description", "current_label", "resolution_notes"]:
             df[col] = df[col].fillna("").astype(str).str.strip()
 

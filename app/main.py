@@ -1,8 +1,8 @@
 # app/main.py
 # llm-issue-categorizer — Streamlit UI
-# All modes complete. UI polish applied per M5 review.
+# Design: single container on light page, named sections, one Run button,
+# combined progress bar with accumulating log, clean results page.
 
-import io
 import time
 from collections import Counter
 
@@ -28,78 +28,132 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ── CSS ────────────────────────────────────────────────────────────────────────
+# ── Design system ──────────────────────────────────────────────────────────────
 
 st.markdown("""
 <style>
-.block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
-
-/* Attribution row */
-.attr-row {
-    font-size: 13px; color: #666;
-    margin-top: 2px; margin-bottom: 0;
+/* ── Base ── */
+html, body, [class*="css"] {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+    color: #111827;
+    background-color: #f3f4f6;
 }
-.attr-row a { color: #0f766e; text-decoration: none; margin-right: 10px; }
-.attr-row a:hover { text-decoration: underline; }
-
-/* Section divider */
-.section-divider { border: none; border-top: 1px solid #e0e0e0; margin: 1.5rem 0; }
-
-/* Data warning */
-.data-warning {
-    background: #fef9ec; border: 1px solid #f0c060;
-    border-radius: 8px; padding: 0.6rem 1rem;
-    font-size: 13px; color: #633806; margin-bottom: 0.75rem;
+.block-container {
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+    max-width: 900px;
+    background: #f3f4f6;
 }
 
-/* Results summary card */
-.summary-card {
-    background: #f8fffe; border: 1px solid #d0ede8;
-    border-radius: 10px; padding: 1.1rem 1.25rem;
-    margin-bottom: 1rem;
+/* ── Section cards ── */
+.section-card {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
 }
-.summary-narrative {
-    font-size: 14px; color: #1a1a1a;
-    line-height: 1.6; margin-bottom: 1rem;
+
+/* ── Typography ── */
+.tool-title {
+    font-size: 22px; font-weight: 700;
+    color: #111827; margin: 0; line-height: 1.2;
 }
-.summary-section-title {
-    font-size: 12px; font-weight: 600;
-    letter-spacing: 0.05em; text-transform: uppercase;
-    color: #0f766e; margin: 0.9rem 0 0.4rem 0;
+.tool-tagline {
+    font-size: 15px; color: #374151;
+    margin: 8px 0 4px 0; line-height: 1.6;
 }
-.merge-tag {
-    background: #e1f5ee; color: #085041;
-    padding: 2px 8px; border-radius: 4px;
-    font-size: 12px; margin-bottom: 4px;
-    display: inline-block;
+.attr-line {
+    font-size: 13px; color: #6b7280; margin: 0;
 }
-.flag-tag {
-    background: #faeeda; color: #633806;
-    padding: 6px 10px; border-radius: 4px;
-    font-size: 12px; margin-bottom: 4px;
+.attr-line a {
+    color: #0f766e; text-decoration: none;
+    font-weight: 500; margin-right: 14px;
 }
-.uc-obs {
-    font-size: 13px; color: #444;
-    padding: 3px 0; border-bottom: 1px solid #eee;
+.attr-line a:hover { text-decoration: underline; }
+.section-title {
+    font-size: 16px; font-weight: 600;
+    color: #111827; margin: 0 0 4px 0;
 }
-.uc-obs:last-child { border-bottom: none; }
-.mt-signal {
+.section-subtitle {
+    font-size: 13px; color: #6b7280;
+    margin: 0 0 16px 0;
+}
+
+/* ── Warning / Info ── */
+.box-warning {
+    background: #fffbeb; border: 1px solid #fcd34d;
+    border-radius: 6px; padding: 10px 14px;
+    font-size: 13px; color: #92400e; margin-bottom: 12px;
+}
+.box-info {
+    background: #f0fdf9; border: 1px solid #99f6e4;
+    border-radius: 6px; padding: 10px 14px;
+    font-size: 13px; color: #134e4a; margin-bottom: 12px;
+}
+
+/* ── Upload zone twin ── */
+.upload-twin {
+    display: flex; gap: 12px; margin-top: 8px;
+}
+
+/* ── Mode badge (locked) ── */
+.mode-badge {
+    background: #f3f4f6; border: 1px solid #e5e7eb;
+    border-radius: 6px; padding: 6px 12px;
+    font-size: 13px; color: #374151;
+    display: inline-block; margin-bottom: 8px;
+}
+
+/* ── Progress log ── */
+.progress-log {
+    background: #f9fafb; border: 1px solid #e5e7eb;
+    border-radius: 6px; padding: 10px 14px;
+    font-size: 13px; color: #374151;
+    font-family: ui-monospace, "SF Mono", monospace;
+    line-height: 1.7; margin-top: 10px;
+    max-height: 220px; overflow-y: auto;
+}
+
+/* ── Summary labels ── */
+.summary-label {
+    font-size: 11px; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: #0f766e; margin: 16px 0 8px 0;
+}
+
+/* ── Result boxes ── */
+.box-merge {
     background: #f0fdf9; border-left: 3px solid #0f766e;
-    padding: 6px 10px; margin-bottom: 4px;
-    font-size: 13px; color: #1a1a1a; border-radius: 0 4px 4px 0;
+    border-radius: 0 6px 6px 0; padding: 8px 12px;
+    font-size: 13px; color: #134e4a; margin-bottom: 6px;
+}
+.box-flag {
+    background: #fffbeb; border-left: 3px solid #f59e0b;
+    border-radius: 0 6px 6px 0; padding: 8px 12px;
+    font-size: 13px; color: #92400e; margin-bottom: 6px;
+}
+.box-uc {
+    font-size: 14px; color: #374151;
+    padding: 6px 0; border-bottom: 1px solid #f3f4f6; line-height: 1.5;
+}
+.box-uc:last-child { border-bottom: none; }
+.box-mt {
+    background: #f0fdf9; border-left: 3px solid #0f766e;
+    border-radius: 0 6px 6px 0; padding: 8px 12px;
+    font-size: 14px; color: #111827; margin-bottom: 6px;
 }
 
-/* Locked mode display */
-.mode-locked {
-    background: #f5f5f5; border: 1px solid #e0e0e0;
-    border-radius: 8px; padding: 0.6rem 1rem;
-    font-size: 13px; color: #555; margin-bottom: 0.5rem;
+/* ── Tighten column gaps ── */
+div[data-testid="column"] {
+    padding-left: 4px !important;
+    padding-right: 4px !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-TEAL_SHADES = ["#0f766e", "#0d9488",
-               "#14b8a6", "#2dd4bf", "#5eead4", "#99f6e4"]
+TEAL = ["#0f766e", "#0d9488", "#14b8a6", "#2dd4bf", "#5eead4", "#99f6e4"]
 GREY = "#d1d5db"
 
 
@@ -107,19 +161,20 @@ GREY = "#d1d5db"
 
 def init_state():
     defaults = {
-        "step": 1,
+        "stage": "input",        # input | processing | results
         "sample_key": None,
         "df": None,
         "context": "",
-        "mode": "no_suggestions",
-        "manual_categories": "",
-        "auto_suggest_categories": [],
-        "auto_suggest_done": False,
+        "cat_mode": "no_suggestions",
+        "depth": "primary",      # primary | full
+        "manual_cats": "",
+        "as_cats": [],
+        "as_done": False,
         "result_df": None,
-        "consolidation": None,
         "mt_df": None,
-        "mt_run_complete": False,
-        "show_low_conf_only": False,
+        "consolidation": None,
+        "show_low_conf": False,
+        "progress_log": [],
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -141,488 +196,748 @@ def make_chart(categories, counts, x_label="Ticket count"):
     total = sum(counts)
     pcts = [f"{c} ({round(c/total*100)}%)" if total else str(c)
             for c in counts]
-    colors = []
-    ti = 0
+    colors, ti = [], 0
     for cat in categories:
         if cat == "Uncategorised":
             colors.append(GREY)
         else:
-            colors.append(TEAL_SHADES[ti % len(TEAL_SHADES)])
+            colors.append(TEAL[ti % len(TEAL)])
             ti += 1
     fig = go.Figure(go.Bar(
         x=counts, y=categories, orientation="h",
-        marker_color=colors,
-        text=pcts, textposition="outside",
+        marker_color=colors, text=pcts, textposition="outside",
         hovertemplate="%{y}: %{x}<extra></extra>"
     ))
     fig.update_layout(
         xaxis_title=x_label,
         yaxis=dict(autorange="reversed"),
-        margin=dict(l=0, r=120, t=10, b=40),
-        height=max(280, len(categories) * 44),
+        margin=dict(l=0, r=130, t=8, b=36),
+        height=max(260, len(categories) * 44),
         plot_bgcolor="white", paper_bgcolor="white",
         font=dict(size=13)
     )
-    fig.update_xaxes(showgrid=True, gridcolor="#f0f0f0")
+    fig.update_xaxes(showgrid=True, gridcolor="#f3f4f6")
     return fig
 
 
 def get_template_csv():
-    template = pd.DataFrame(columns=[
+    return pd.DataFrame(columns=[
         "ticket_id", "issue_description", "current_label", "resolution_notes"
-    ])
-    return template.to_csv(index=False).encode("utf-8")
+    ]).to_csv(index=False).encode("utf-8")
+
+
+def append_log(log_placeholder, lines, new_line):
+    lines.append(new_line)
+    log_placeholder.markdown(
+        "<div class='progress-log'>" +
+        "<br>".join(lines) +
+        "</div>",
+        unsafe_allow_html=True
+    )
+    return lines
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HEADER
 # ══════════════════════════════════════════════════════════════════════════════
 
-col_title, col_reset = st.columns([6, 1])
-with col_title:
-    st.markdown("## 🗂️ llm-issue-categorizer")
+# Title row — title on left, Start over on right, no wrapping
+title_col, reset_col = st.columns([6, 1])
+with title_col:
     st.markdown(
-        "<p class='attr-row'>Turn vague operational ticket labels into structured product intelligence. "
-        "Built by <strong>Saurabh Das</strong> — Senior TPM & Designated PM at Microsoft AI, "
-        "documenting an AI learning journey in public.&nbsp;&nbsp;"
-        "<a href='https://linkedin.com/in/saurabhdas7' target='_blank'>LinkedIn</a>"
-        "<a href='https://github.com/saurabh-das7/llm-issue-categorizer' target='_blank'>GitHub</a>"
-        "<a href='https://github.com/saurabh-das7/llm-issue-categorizer' target='_blank'>Project repo</a>"
-        "</p>",
+        "<p class='tool-title'>🗂️ llm-issue-categorizer</p>",
         unsafe_allow_html=True
     )
-with col_reset:
-    st.write("")
+with reset_col:
     if st.button("↺ Start over", key="reset_btn"):
         reset_all()
         st.rerun()
 
-st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
+# Description row — full width, no interaction with title row
+st.markdown(
+    "<p class='tool-tagline'>Your ops tickets say \"quality issue.\" "
+    "This tool tells you what that actually means — and how often.</p>",
+    unsafe_allow_html=True
+)
+st.markdown(
+    "<p class='attr-line'>Built by <strong>Saurabh Das</strong> — "
+    "Senior TPM at Microsoft AI, documenting an AI learning journey in public.&nbsp;"
+    "<a href='https://linkedin.com/in/saurabhdas7' target='_blank'>LinkedIn</a>"
+    "<a href='https://github.com/saurabh-das7/llm-issue-categorizer' target='_blank'>GitHub</a>"
+    "<a href='https://github.com/saurabh-das7/llm-issue-categorizer' target='_blank'>Project repo</a>"
+    "</p>",
+    unsafe_allow_html=True
+)
+
+with st.expander("How to use this tool", expanded=False):
+    st.markdown("""
+**Choose your data**
+Pick one of the three sample datasets to try the tool instantly, or upload your own
+CSV / Excel / TXT file (up to 100 rows). Only an `issue_description` column is required.
+
+**Configure your run**
+Choose how categories are created *(Category source)* and how deeply each ticket
+is analysed *(Analysis depth)*. If you choose Manual list or Auto-suggest, you'll
+enter or review your taxonomy before the run starts.
+
+**Review results**
+Every ticket gets a category, confidence score, and a one-line reasoning note.
+The Results Summary explains merges, overlaps, and what's hiding in the
+Uncategorised bucket.
+
+**Download**
+Export the full annotated dataset as a CSV — with primary category, confidence,
+reasoning, and (if Full theme mapping was selected) all applicable themes per ticket.
+    """)
+
+st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 1 — Data input
+# SECTION 1 — Choose your data
 # ══════════════════════════════════════════════════════════════════════════════
 
-st.markdown("#### Step 1 — Choose your data")
-st.markdown("**Try a sample dataset** — loads instantly, no upload needed")
-
-tile_cols = st.columns(3)
-for i, key in enumerate(list(SAMPLES.keys())):
-    s = SAMPLES[key]
-    with tile_cols[i]:
-        selected = st.session_state.sample_key == key
-        label = f"{s['icon']} **{s['label']}**\n\n{s['row_count']} rows"
-        if st.button(label, key=f"tile_{key}",
-                     type="primary" if selected else "secondary"):
-            st.session_state.sample_key = key
-            st.session_state.df = get_sample_df(key)
-            st.session_state.context = get_sample_context(key)
-            st.session_state.step = 2
-            st.session_state.result_df = None
-            st.session_state.consolidation = None
-            st.session_state.mt_df = None
-            st.session_state.mt_run_complete = False
-            st.session_state.auto_suggest_done = False
-            st.rerun()
-        if selected:
-            st.caption("✅ Selected")
-
-st.markdown("<br>", unsafe_allow_html=True)
-div_cols = st.columns([2, 1, 2])
-with div_cols[1]:
+with st.container():
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    st.markdown("<p class='section-title'>Choose your data</p>",
+                unsafe_allow_html=True)
     st.markdown(
-        "<div style='text-align:center;color:#aaa;font-size:13px'>— or upload your own —</div>",
+        "<p class='section-subtitle'>Try a sample dataset or upload your own file</p>",
         unsafe_allow_html=True
     )
-st.markdown("<br>", unsafe_allow_html=True)
 
-# Data warning
-st.markdown("""
-<div class='data-warning'>
+    # Sample tiles
+    c1, c2, c3 = st.columns(3)
+    for col, key in zip([c1, c2, c3], list(SAMPLES.keys())):
+        s = SAMPLES[key]
+        with col:
+            selected = st.session_state.sample_key == key
+            if st.button(
+                f"{s['icon']} {s['label'].split()[0]}\n{s['row_count']} rows",
+                key=f"tile_{key}",
+                help=s['label'],
+                type="primary" if selected else "secondary",
+                use_container_width=True
+            ):
+                st.session_state.sample_key = key
+                st.session_state.df = get_sample_df(key)
+                st.session_state.context = get_sample_context(key)
+                st.session_state.stage = "input"
+                st.session_state.result_df = None
+                st.session_state.consolidation = None
+                st.session_state.mt_df = None
+                st.session_state.as_done = False
+                st.session_state.progress_log = []
+                st.rerun()
+            if selected:
+                st.caption("✅ Selected")
+
+    st.markdown(
+        "<p style='text-align:center;color:#9ca3af;font-size:13px;margin:12px 0'>— or upload your own —</p>",
+        unsafe_allow_html=True
+    )
+
+    st.markdown("""
+<div class='box-warning'>
 ⚠️ <strong>Do not upload files containing personal data, customer PII, or confidential
-business information.</strong> Data submitted to this tool is processed by the Google
-Gemini API and subject to Google's data handling policies.
+business information.</strong> Data is processed by the Google Gemini API and subject
+to Google's data handling policies.
 </div>
 """, unsafe_allow_html=True)
 
-# Column requirements note + template download
-req_col, tmpl_col = st.columns([4, 1])
-with req_col:
     st.markdown(
-        "<p style='font-size:13px;color:#555;margin-bottom:4px'>"
-        "Required columns: <code>ticket_id</code>, <code>issue_description</code>, "
-        "<code>current_label</code> &nbsp;·&nbsp; Optional: <code>resolution_notes</code> "
-        "&nbsp;·&nbsp; Max 100 rows &nbsp;·&nbsp; Accepted: CSV, Excel (.xlsx), TXT (pipe-delimited)"
+        "<p style='font-size:14px;color:#374151;margin:0 0 4px 0'>"
+        "Only <code>issue_description</code> is required. "
+        "Add <code>ticket_id</code>, <code>current_label</code>, and <code>resolution_notes</code> "
+        "for richer output — merge detection, overlap flags, and pattern summaries."
+        "</p>"
+        "<p style='font-size:13px;color:#6b7280;margin:0 0 10px 0'>"
+        "Accepted: CSV · Excel (.xlsx) · TXT (pipe-delimited) · Max 100 rows"
         "</p>",
         unsafe_allow_html=True
     )
-with tmpl_col:
-    st.download_button(
-        label="⬇ Download template",
-        data=get_template_csv(),
-        file_name="ticket_template.csv",
-        mime="text/csv",
-        key="tmpl_dl"
-    )
 
-uploaded_file = st.file_uploader(
-    "Upload your file",
-    type=["csv", "xlsx", "txt"],
-    key="file_uploader",
-    label_visibility="collapsed"
-)
+    up_col, tmpl_col = st.columns([3, 1])
+    with up_col:
+        uploaded_file = st.file_uploader(
+            "Upload", type=["csv", "xlsx", "txt"],
+            key="file_uploader", label_visibility="collapsed"
+        )
+    with tmpl_col:
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+        st.download_button(
+            label="⬇ Download Template",
+            data=get_template_csv(),
+            file_name="ticket_template.csv",
+            mime="text/csv",
+            key="tmpl_dl",
+            use_container_width=True
+        )
 
-upload_error = None
-if uploaded_file is not None:
-    df, error = parse_file(uploaded_file)
-    if error:
-        upload_error = error
-        st.error(error)
-    else:
-        st.session_state.sample_key = None
-        # Clear sample context when switching to upload
-        if st.session_state.context in [
-            get_sample_context("upi"),
-            get_sample_context("ads"),
-            get_sample_context("cop")
-        ]:
-            st.session_state.context = ""
-        st.session_state.df = df
-        st.session_state.step = 2
-        st.session_state.result_df = None
-        st.session_state.consolidation = None
-        st.session_state.mt_df = None
-        st.session_state.mt_run_complete = False
+    upload_error = None
+    if uploaded_file is not None:
+        df, error = parse_file(uploaded_file)
+        if error:
+            upload_error = error
+            st.error(error)
+        else:
+            st.session_state.sample_key = None
+            sample_contexts = [get_sample_context(k) for k in SAMPLES]
+            if st.session_state.context in sample_contexts:
+                st.session_state.context = ""
+            st.session_state.df = df
+            st.session_state.stage = "input"
+            st.session_state.result_df = None
+            st.session_state.consolidation = None
+            st.session_state.mt_df = None
+            st.session_state.progress_log = []
 
-# Context field — only shown when data loaded and no upload error
-if st.session_state.df is not None and upload_error is None:
-    ctx = st.text_input(
-        "What kind of data is this? *",
-        value=st.session_state.context,
-        placeholder="e.g. Support tickets for a logistics ops team",
-        help="Passed to the LLM with every prompt for domain-aware categorisation.",
-        key="ctx_input"
-    )
-    st.session_state.context = ctx
-    row_count = len(st.session_state.df)
-    st.success(f"✅ {row_count} rows loaded — ready to proceed")
+    # Context field
+    if st.session_state.df is not None and upload_error is None:
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        ctx = st.text_input(
+            "What kind of data is this? *",
+            value=st.session_state.context,
+            placeholder="e.g. Support tickets for a logistics ops team",
+            help="Passed to the LLM with every prompt for domain-aware categorisation.",
+            key="ctx_input"
+        )
+        st.session_state.context = ctx
+        st.success(
+            f"✅ {len(st.session_state.df)} rows loaded — ready to proceed")
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 2 — Mode selection
+# SECTION 2 — Configure your run
 # ══════════════════════════════════════════════════════════════════════════════
 
-# After run: show locked mode summary
-if st.session_state.step >= 2 and st.session_state.result_df is not None:
-    st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
-    mode_labels = {
-        "no_suggestions": "No suggestions",
-        "manual_list": "Manual list",
-        "auto_suggest": "Auto-suggest"
-    }
-    chosen = mode_labels.get(st.session_state.mode, st.session_state.mode)
-    st.markdown(
-        f"<div class='mode-locked'>✅ <strong>Step 2 — Mode:</strong> {chosen}</div>",
-        unsafe_allow_html=True
-    )
+if st.session_state.df is not None:
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
-# Before run: show full mode selection UI
-elif st.session_state.step >= 2 and st.session_state.df is not None:
-    st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
-    st.markdown("#### Step 2 — Choose categorisation mode")
-
-    row_count = len(st.session_state.df)
-    as_disabled = row_count <= 50
-
-    mode_options = {
-        "no_suggestions": {
-            "label": "No suggestions",
-            "desc": "LLM reads all rows and generates its own category names. No input needed."
-        },
-        "manual_list": {
-            "label": "Manual list",
-            "desc": "You define starting categories. LLM maps to them and creates new buckets as needed."
-        },
-        "auto_suggest": {
-            "label": "Auto-suggest" + (" (requires >50 rows)" if as_disabled else ""),
-            "desc": "We sample 25% of your rows and propose a taxonomy for you to review before the full run."
+    # After run: show locked summary badge
+    if st.session_state.stage == "results" and st.session_state.result_df is not None:
+        cat_mode_labels = {
+            "no_suggestions": "No suggestions",
+            "manual_list": "Manual list",
+            "auto_suggest": "Auto-suggest"
         }
-    }
-
-    mode_labels_list = [v["label"] for v in mode_options.values()]
-    mode_keys = list(mode_options.keys())
-
-    selected_label = st.radio(
-        "Select mode",
-        options=mode_labels_list,
-        index=mode_keys.index(
-            st.session_state.mode) if st.session_state.mode in mode_keys else 0,
-        key="mode_radio",
-        label_visibility="collapsed"
-    )
-    selected_mode = mode_keys[mode_labels_list.index(selected_label)]
-
-    if selected_mode != st.session_state.mode:
-        st.session_state.auto_suggest_done = False
-        st.session_state.auto_suggest_categories = []
-    st.session_state.mode = selected_mode
-    st.caption(mode_options[selected_mode]["desc"])
-
-    # ── Manual List ────────────────────────────────────────────────────────────
-    if selected_mode == "manual_list":
-        st.markdown("<br>", unsafe_allow_html=True)
-        manual_input = st.text_area(
-            "Your categories — one per line",
-            value=st.session_state.manual_categories,
-            height=160,
-            placeholder="Payment failure\nApp crash\nRefund dispute\nKYC issue\nFraud / unauthorized",
-            key="manual_textarea"
+        depth_labels = {
+            "primary": "Primary category only",
+            "full": "Full theme mapping"
+        }
+        cm = cat_mode_labels.get(st.session_state.cat_mode, "")
+        dp = depth_labels.get(st.session_state.depth, "")
+        st.markdown(
+            f"<div class='section-card'>"
+            f"<span class='mode-badge'>✅ <strong>Configure your run</strong> — "
+            f"{cm} · {dp}</span>"
+            f"</div>",
+            unsafe_allow_html=True
         )
-        st.session_state.manual_categories = manual_input
-        cat_lines = [l.strip() for l in manual_input.split("\n") if l.strip()]
-        cat_count = len(cat_lines)
-        if cat_count < 2:
-            st.caption(
-                f"{cat_count} {'category' if cat_count == 1 else 'categories'} — minimum 2 required")
-        elif cat_count > 15:
-            st.warning(
-                f"{cat_count} categories — maximum is 15. Please remove some.", icon="⚠️")
-        else:
-            st.caption(f"✅ {cat_count} categories entered")
-        st.caption(
-            "The LLM will map tickets to your categories and may create additional "
-            "buckets for patterns not covered, provided they have enough tickets."
-        )
-        context_valid = len(st.session_state.context.strip()) >= 10
-        run_ready = 2 <= cat_count <= 15 and context_valid
-        if not context_valid:
-            st.warning(
-                "Please enter a data description above before running.", icon="⚠️")
-        if st.button("▶ Run categorisation", disabled=not run_ready,
-                     type="primary", key="run_btn_ml"):
-            st.session_state.step = 3
-            st.rerun()
 
-    # ── Auto-Suggest ───────────────────────────────────────────────────────────
-    elif selected_mode == "auto_suggest":
-        if as_disabled:
-            st.info(
-                "Auto-suggest requires more than 50 rows. "
-                "Use No suggestions or Manual list instead.",
-                icon="ℹ️"
+    # Before run: full configuration UI
+    elif st.session_state.stage == "input":
+        with st.container():
+            st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+            st.markdown(
+                "<p class='section-title'>Configure your run</p>",
+                unsafe_allow_html=True
             )
-        else:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if not st.session_state.auto_suggest_done:
-                st.markdown(
-                    "We'll sample 25% of your tickets and propose a starting taxonomy. "
-                    "Takes ~15–20 seconds."
+
+            row_count = len(st.session_state.df)
+
+            # ── Group 1: Category source ───────────────────────────────────────
+            st.markdown(
+                "<p style='font-size:14px;font-weight:600;color:#111827;margin:0 0 4px 0'>"
+                "Category source</p>"
+                "<p style='font-size:13px;color:#6b7280;margin:0 0 10px 0'>"
+                "How should categories be created?</p>",
+                unsafe_allow_html=True
+            )
+
+            cat_mode = st.radio(
+                "Category source",
+                options=["No suggestions", "Manual list", "Auto-suggest"],
+                index=["no_suggestions", "manual_list", "auto_suggest"].index(
+                    st.session_state.cat_mode
+                ),
+                key="cat_mode_radio",
+                label_visibility="collapsed"
+            )
+            cat_mode_key = {
+                "No suggestions": "no_suggestions",
+                "Manual list": "manual_list",
+                "Auto-suggest": "auto_suggest"
+            }[cat_mode]
+
+            # Reset auto-suggest state if mode changed
+            if cat_mode_key != st.session_state.cat_mode:
+                st.session_state.as_done = False
+                st.session_state.as_cats = []
+            st.session_state.cat_mode = cat_mode_key
+
+            # Descriptions per mode
+            mode_descs = {
+                "no_suggestions": "The LLM reads all rows and invents category names from the data.",
+                "manual_list": "You define the starting taxonomy. The LLM maps to it and can create new buckets if needed.",
+                "auto_suggest": "We sample 25% of your rows, propose a taxonomy for you to review, then run."
+            }
+            st.caption(mode_descs[cat_mode_key])
+
+            # ── Inline expansion: Manual list ──────────────────────────────────
+            if cat_mode_key == "manual_list":
+                st.markdown("<div style='height:8px'></div>",
+                            unsafe_allow_html=True)
+                manual_input = st.text_area(
+                    "Your categories — one per line",
+                    value=st.session_state.manual_cats,
+                    height=140,
+                    placeholder="Payment failure\nApp crash\nRefund dispute\nKYC issue\nFraud / unauthorized",
+                    key="manual_textarea"
                 )
-                if st.button("Generate suggestions from your data", key="gen_suggest_btn"):
-                    with st.spinner("Sampling tickets and generating taxonomy..."):
-                        suggestions = run_auto_suggest(
-                            st.session_state.df,
-                            st.session_state.context
-                        )
-                    if suggestions:
-                        st.session_state.auto_suggest_categories = suggestions
-                        st.session_state.auto_suggest_done = True
-                        st.rerun()
-                    else:
-                        st.error(
-                            "Could not generate suggestions — please try again or switch to Manual list.")
-            else:
-                st.markdown(
-                    "**Suggested taxonomy** — rename, delete, or add categories "
-                    "before running the full categorisation."
-                )
-                st.caption(
-                    "The LLM can create additional categories during the full run "
-                    "for patterns not captured here, as long as they have enough tickets."
-                )
-                cats = st.session_state.auto_suggest_categories
-                updated_cats = []
-                for idx, cat in enumerate(cats):
-                    col_input, col_del = st.columns([8, 1])
-                    with col_input:
-                        new_val = st.text_input(
-                            f"cat_{idx}",
-                            value=cat,
-                            key=f"as_cat_{idx}",
-                            label_visibility="collapsed"
-                        )
-                        if new_val.strip():
-                            updated_cats.append(new_val.strip())
-                    with col_del:
-                        if st.button("✕", key=f"del_cat_{idx}"):
-                            cats.pop(idx)
-                            st.session_state.auto_suggest_categories = cats
+                st.session_state.manual_cats = manual_input
+                cat_lines = [l.strip()
+                             for l in manual_input.split("\n") if l.strip()]
+                cat_count = len(cat_lines)
+                if cat_count < 2:
+                    st.caption(
+                        f"{cat_count} {'category' if cat_count == 1 else 'categories'} — minimum 2 required")
+                elif cat_count > 15:
+                    st.warning(
+                        f"{cat_count} categories — maximum is 15.", icon="⚠️")
+                else:
+                    st.caption(f"✅ {cat_count} categories entered")
+
+            # ── Inline expansion: Auto-suggest ─────────────────────────────────
+            elif cat_mode_key == "auto_suggest":
+                st.markdown("<div style='height:8px'></div>",
+                            unsafe_allow_html=True)
+                if row_count <= 50:
+                    st.markdown(
+                        "<div class='box-info'>Auto-suggest requires more than 50 rows. "
+                        "Use No suggestions or Manual list instead.</div>",
+                        unsafe_allow_html=True
+                    )
+                elif not st.session_state.as_done:
+                    st.markdown(
+                        "<p style='font-size:13px;color:#374151'>"
+                        "We'll sample 25% of your rows and propose a starting taxonomy (~15–20 seconds).</p>",
+                        unsafe_allow_html=True
+                    )
+                    if st.button("Generate suggestions", key="gen_btn"):
+                        ctx_val = st.session_state.context
+                        with st.spinner("Sampling and generating taxonomy..."):
+                            suggestions = run_auto_suggest(
+                                st.session_state.df, ctx_val)
+                        if suggestions:
+                            st.session_state.as_cats = suggestions
+                            st.session_state.as_done = True
                             st.rerun()
-                st.session_state.auto_suggest_categories = updated_cats
+                        else:
+                            st.error(
+                                "Could not generate suggestions — try again or switch to Manual list.")
+                else:
+                    st.markdown(
+                        "<p style='font-size:13px;font-weight:600;color:#111827;margin:0 0 2px 0'>"
+                        "Suggested taxonomy</p>"
+                        "<p style='font-size:13px;color:#6b7280;margin:0 0 10px 0'>"
+                        "Rename, delete, or add categories before running.</p>",
+                        unsafe_allow_html=True
+                    )
+                    cats = st.session_state.as_cats
+                    updated = []
+                    for idx, cat in enumerate(cats):
+                        ic, dc = st.columns([9, 1])
+                        with ic:
+                            v = st.text_input(
+                                f"c{idx}", value=cat,
+                                key=f"asc_{idx}",
+                                label_visibility="collapsed"
+                            )
+                            if v.strip():
+                                updated.append(v.strip())
+                        with dc:
+                            if st.button("✕", key=f"del_{idx}"):
+                                cats.pop(idx)
+                                st.session_state.as_cats = cats
+                                st.rerun()
+                    st.session_state.as_cats = updated
 
-                if st.button("+ Add category", key="add_cat_btn"):
-                    st.session_state.auto_suggest_categories.append("")
-                    st.rerun()
+                    bcol, rcol, _ = st.columns([2, 2, 4])
+                    with bcol:
+                        if st.button("+ Add category", key="add_cat"):
+                            st.session_state.as_cats.append("")
+                            st.rerun()
+                    with rcol:
+                        if st.button("↺ Re-generate", key="regen"):
+                            st.session_state.as_done = False
+                            st.session_state.as_cats = []
+                            st.rerun()
+                    valid_as = [c for c in updated if c]
+                    st.caption(f"✅ {len(valid_as)} categories confirmed" if len(valid_as) >= 2
+                               else f"{len(valid_as)} categories — minimum 2 required")
 
-                valid_cats = [c for c in updated_cats if c]
-                st.markdown("<br>", unsafe_allow_html=True)
-                context_valid = len(st.session_state.context.strip()) >= 10
-                run_ready = len(valid_cats) >= 2 and context_valid
+            st.markdown("<div style='height:16px'></div>",
+                        unsafe_allow_html=True)
 
-                col_run, col_regen = st.columns([2, 2])
-                with col_run:
-                    if st.button("▶ Run full categorisation", disabled=not run_ready,
-                                 type="primary", key="run_btn_as"):
-                        st.session_state.manual_categories = "\n".join(
-                            valid_cats)
-                        st.session_state.step = 3
-                        st.rerun()
-                with col_regen:
-                    if st.button("↺ Re-generate suggestions", key="regen_btn"):
-                        st.session_state.auto_suggest_done = False
-                        st.session_state.auto_suggest_categories = []
-                        st.rerun()
-
-    # ── No Suggestions ─────────────────────────────────────────────────────────
-    else:
-        context_valid = len(st.session_state.context.strip()) >= 10
-        if not context_valid:
-            st.warning(
-                "Please enter a data description (at least 10 characters) before running.",
-                icon="⚠️"
-            )
-        if st.button("▶ Run categorisation", disabled=not context_valid,
-                     type="primary", key="run_btn_ns"):
-            st.session_state.step = 3
-            st.rerun()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# STEP 3 — Processing
-# ══════════════════════════════════════════════════════════════════════════════
-
-if st.session_state.step >= 3 and st.session_state.result_df is None:
-    st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
-    st.markdown("#### Processing")
-
-    df = st.session_state.df
-    context = st.session_state.context
-    total_batches = (len(df) + 9) // 10
-    estimated_secs = total_batches * 6  # ~6 seconds per batch including sleep
-
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    eta_text = st.empty()
-    eta_text.caption(f"Estimated time: ~{estimated_secs} seconds")
-
-    def update_progress(batch_num, total):
-        pct = batch_num / total
-        progress_bar.progress(pct)
-        if batch_num == total:
-            status_text.markdown("Running final consolidation pass...")
-            eta_text.empty()
-        else:
-            status_text.markdown(
-                f"Processing batch **{batch_num}** of **{total}**..."
+            # ── Group 2: Analysis depth ────────────────────────────────────────
+            st.markdown(
+                "<p style='font-size:14px;font-weight:600;color:#111827;margin:0 0 4px 0'>"
+                "Analysis depth</p>"
+                "<p style='font-size:13px;color:#6b7280;margin:0 0 10px 0'>"
+                "How many categories per ticket?</p>",
+                unsafe_allow_html=True
             )
 
-    mode = st.session_state.mode
-    categories = None
-    if mode in ("manual_list", "auto_suggest"):
-        categories = [
-            l.strip() for l in st.session_state.manual_categories.split("\n")
-            if l.strip()
-        ]
+            depth = st.radio(
+                "Analysis depth",
+                options=["Primary category only", "Full theme mapping"],
+                index=0 if st.session_state.depth == "primary" else 1,
+                key="depth_radio",
+                label_visibility="collapsed"
+            )
+            depth_key = "primary" if depth == "Primary category only" else "full"
+            st.session_state.depth = depth_key
 
-    result_df = run_categorisation(
-        df=df, context=context, mode=mode,
-        categories=categories, progress_callback=update_progress
-    )
+            depth_descs = {
+                "primary": "Each ticket gets one primary category. Fastest — ~60–90 seconds for 100 rows.",
+                "full": "Each ticket is mapped to all applicable themes. Adds ~60–90 seconds for the second pass."
+            }
+            st.caption(depth_descs[depth_key])
 
-    consolidation = run_consolidation(result_df, context)
-    result_df = consolidation["df"]
+            st.markdown("<div style='height:16px'></div>",
+                        unsafe_allow_html=True)
 
-    progress_bar.progress(1.0)
-    status_text.markdown("✅ **Complete!**")
-    eta_text.empty()
+            # ── Run button — single exit point ─────────────────────────────────
+            ctx_valid = len(st.session_state.context.strip()) >= 10
 
-    st.session_state.result_df = result_df
-    st.session_state.consolidation = consolidation
-    st.session_state.step = 4
-    time.sleep(0.4)
-    st.rerun()
+            # Determine if run is ready based on mode
+            if cat_mode_key == "no_suggestions":
+                run_ready = ctx_valid
+            elif cat_mode_key == "manual_list":
+                ml_cats = [l.strip() for l in st.session_state.manual_cats.split(
+                    "\n") if l.strip()]
+                run_ready = ctx_valid and 2 <= len(ml_cats) <= 15
+            elif cat_mode_key == "auto_suggest":
+                as_valid = st.session_state.as_done and len(
+                    [c for c in st.session_state.as_cats if c]) >= 2
+                run_ready = ctx_valid and as_valid and row_count > 50
+            else:
+                run_ready = False
+
+            if not ctx_valid:
+                st.warning(
+                    "Enter a data description above (at least 10 characters) before running.", icon="⚠️")
+
+            if st.button("▶ Run", disabled=not run_ready, type="primary", key="run_btn"):
+                st.session_state.stage = "processing"
+                st.session_state.progress_log = []
+                st.rerun()
+
+            st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 4 — Results
+# PROCESSING
 # ══════════════════════════════════════════════════════════════════════════════
 
-if st.session_state.step >= 4 and st.session_state.result_df is not None:
-    st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
+if st.session_state.stage == "processing":
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    with st.container():
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown("<p class='section-title'>Processing</p>",
+                    unsafe_allow_html=True)
+
+        df = st.session_state.df
+        context = st.session_state.context
+        cat_mode = st.session_state.cat_mode
+        depth = st.session_state.depth
+
+        total_batches = (len(df) + 9) // 10
+        # Total steps: batches + consolidation + (batches again if full depth)
+        total_steps = total_batches + 1 + \
+            (total_batches if depth == "full" else 0)
+        step_counter = [0]
+
+        progress_bar = st.progress(0.0)
+        status_el = st.empty()
+        log_el = st.empty()
+        log_lines = []
+
+        def update_progress(label, log_line=None):
+            step_counter[0] += 1
+            pct = min(step_counter[0] / total_steps, 1.0)
+            progress_bar.progress(pct)
+            status_el.markdown(
+                f"<p style='font-size:14px;color:#374151;margin:6px 0'>{label}</p>",
+                unsafe_allow_html=True
+            )
+            if log_line:
+                log_lines = append_log(log_el, log_lines, log_line)
+
+        # Determine categories to pass
+        categories = None
+        if cat_mode == "manual_list":
+            categories = [
+                l.strip() for l in st.session_state.manual_cats.split("\n") if l.strip()]
+        elif cat_mode == "auto_suggest":
+            categories = [c for c in st.session_state.as_cats if c]
+
+        # Track unique category count across batches
+        cat_set = list(categories) if categories else []
+
+        def batch_callback(batch_num, total):
+            new_cats_before = len(cat_set)
+            update_progress(
+                f"Categorising batch {batch_num} of {total}...",
+                log_line=None
+            )
+            # Log is updated after batch completes in the main loop below
+
+        # ── Phase 1: Categorisation ────────────────────────────────────────────
+        status_el.markdown(
+            "<p style='font-size:14px;color:#374151;margin:6px 0'>Starting categorisation...</p>",
+            unsafe_allow_html=True
+        )
+
+        # Run categorisation with per-batch logging
+        result_df = st.session_state.df.copy()
+        result_df["new_category"] = ""
+        result_df["confidence"] = ""
+        result_df["reasoning"] = ""
+
+        import os
+        import json
+        import time as _time
+        from google import genai as _genai
+        from engine import (
+            get_client, _build_categorisation_prompt, _call_gemini,
+            _parse_batch_response, _apply_bucket_threshold,
+            BATCH_SIZE, MIN_BUCKET_THRESHOLD
+        )
+
+        client = get_client()
+        accumulated_cats = list(categories) if categories else []
+        rows = result_df.to_dict(orient="records")
+
+        for batch_num in range(total_batches):
+            start = batch_num * BATCH_SIZE
+            end = min(start + BATCH_SIZE, len(rows))
+            batch = rows[start:end]
+
+            prompt = _build_categorisation_prompt(
+                context=context,
+                mode=cat_mode,
+                accumulated_categories=accumulated_cats,
+                batch=batch
+            )
+
+            try:
+                raw = _call_gemini(client, prompt)
+                results = _parse_batch_response(raw, batch)
+                for i, res in enumerate(results):
+                    idx = start + i
+                    result_df.at[idx, "new_category"] = res.get(
+                        "new_category", "Uncategorised")
+                    result_df.at[idx, "confidence"] = res.get(
+                        "confidence", "Low")
+                    result_df.at[idx, "reasoning"] = res.get("reasoning", "")
+                    cat = res.get("new_category", "")
+                    if cat and cat != "Uncategorised" and cat not in accumulated_cats:
+                        accumulated_cats.append(cat)
+            except Exception as e:
+                for i in range(len(batch)):
+                    result_df.at[start + i, "new_category"] = "Uncategorised"
+                    result_df.at[start + i, "confidence"] = "Low"
+                    result_df.at[start + i, "reasoning"] = f"Error: {str(e)}"
+
+            # Count unique non-Uncategorised categories so far
+            current_cats = result_df.iloc[:end]["new_category"].replace(
+                "Uncategorised", None).dropna().nunique()
+            step_counter[0] += 1
+            pct = min(step_counter[0] / total_steps, 1.0)
+            progress_bar.progress(pct)
+            status_el.markdown(
+                f"<p style='font-size:14px;color:#374151;margin:6px 0'>"
+                f"Categorising batch {batch_num + 1} of {total_batches}...</p>",
+                unsafe_allow_html=True
+            )
+            log_lines = append_log(
+                log_el, log_lines,
+                f"✓ Batch {batch_num + 1} of {total_batches} — "
+                f"{current_cats} {'category' if current_cats == 1 else 'categories'} identified so far"
+            )
+
+            if batch_num < total_batches - 1:
+                _time.sleep(4)
+
+        result_df = _apply_bucket_threshold(result_df)
+
+        # ── Phase 2: Consolidation ─────────────────────────────────────────────
+        step_counter[0] += 1
+        progress_bar.progress(min(step_counter[0] / total_steps, 1.0))
+        status_el.markdown(
+            "<p style='font-size:14px;color:#374151;margin:6px 0'>Running consolidation pass...</p>",
+            unsafe_allow_html=True
+        )
+
+        from engine import run_consolidation as _run_consolidation
+        consolidation = _run_consolidation(result_df, context)
+        result_df = consolidation["df"]
+
+        final_cat_count = result_df["new_category"].replace(
+            "Uncategorised", None).dropna().nunique()
+        merge_count = len(consolidation.get("transparency_log", []))
+        merge_note = f", {merge_count} auto-merge{'s' if merge_count != 1 else ''} applied" if merge_count else ""
+        log_lines = append_log(
+            log_el, log_lines,
+            f"✓ Consolidation complete — {final_cat_count} final categories{merge_note}"
+        )
+
+        # ── Phase 3: Multi-tag (if full depth) ────────────────────────────────
+        mt_df = None
+        if depth == "full":
+            final_cats = [
+                c for c in result_df["new_category"].unique() if c != "Uncategorised"]
+            mt_rows = result_df.to_dict(orient="records")
+            mt_df = result_df.copy()
+            mt_df["multi_tags"] = ""
+
+            from engine import _build_multi_tag_prompt, _parse_multi_tag_response
+
+            for batch_num in range(total_batches):
+                start = batch_num * BATCH_SIZE
+                end = min(start + BATCH_SIZE, len(mt_rows))
+                batch = mt_rows[start:end]
+
+                prompt = _build_multi_tag_prompt(
+                    context=context,
+                    categories=final_cats,
+                    batch=batch
+                )
+                try:
+                    raw = _call_gemini(client, prompt)
+                    results = _parse_multi_tag_response(raw, batch)
+                    for i, res in enumerate(results):
+                        idx = start + i
+                        tags = res.get("tags", [])
+                        mt_df.at[idx, "multi_tags"] = " | ".join(tags)
+                except Exception:
+                    pass
+
+                step_counter[0] += 1
+                progress_bar.progress(min(step_counter[0] / total_steps, 1.0))
+                status_el.markdown(
+                    f"<p style='font-size:14px;color:#374151;margin:6px 0'>"
+                    f"Mapping themes — batch {batch_num + 1} of {total_batches}...</p>",
+                    unsafe_allow_html=True
+                )
+                log_lines = append_log(
+                    log_el, log_lines,
+                    f"✓ Theme mapping batch {batch_num + 1} of {total_batches} complete"
+                )
+
+                if batch_num < total_batches - 1:
+                    _time.sleep(4)
+
+        # ── Done ───────────────────────────────────────────────────────────────
+        progress_bar.progress(1.0)
+        status_el.markdown(
+            "<p style='font-size:14px;font-weight:600;color:#0f766e;margin:6px 0'>✅ Complete</p>",
+            unsafe_allow_html=True
+        )
+        log_lines = append_log(log_el, log_lines, "━━ Run complete ━━")
+
+        st.session_state.result_df = result_df
+        st.session_state.consolidation = consolidation
+        st.session_state.mt_df = mt_df
+        st.session_state.stage = "results"
+        st.markdown("</div>", unsafe_allow_html=True)
+        _time.sleep(0.8)
+        st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RESULTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+if st.session_state.stage == "results" and st.session_state.result_df is not None:
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
     result_df = st.session_state.result_df
     consolidation = st.session_state.consolidation
+    mt_df = st.session_state.mt_df
     total_rows = len(result_df)
 
-    # Completion banner
-    st.markdown(
-        f"#### ✅ Categorisation complete — {total_rows} tickets processed")
-
-    # ── Results table ──────────────────────────────────────────────────────────
-    st.markdown("**Results**")
-    filter_col, _ = st.columns([3, 5])
-    with filter_col:
-        show_low = st.checkbox(
-            "Show Low confidence rows only",
-            value=st.session_state.show_low_conf_only,
-            key="low_conf_toggle"
+    with st.container():
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown(
+            f"<p class='section-title'>✅ Results — {total_rows} tickets processed</p>",
+            unsafe_allow_html=True
         )
-        st.session_state.show_low_conf_only = show_low
 
-    display_df = result_df.copy()
-    if show_low:
-        display_df = display_df[display_df["confidence"] == "Low"]
+        # ── Results table ──────────────────────────────────────────────────────
+        fc, _ = st.columns([3, 5])
+        with fc:
+            show_low = st.checkbox(
+                "Show Low confidence rows only",
+                value=st.session_state.show_low_conf,
+                key="lc_toggle"
+            )
+            st.session_state.show_low_conf = show_low
 
-    table_rows = []
-    for _, row in display_df.iterrows():
-        desc = str(row["issue_description"])
-        table_rows.append({
-            "Ticket ID": row["ticket_id"],
-            "Description": desc[:80] + "..." if len(desc) > 80 else desc,
-            "Old label": row["current_label"],
-            "New category": row["new_category"],
-            "Confidence": row["confidence"],
-            "Reasoning": row["reasoning"]
-        })
+        display = result_df[result_df["confidence"]
+                            == "Low"] if show_low else result_df
+        table_rows = []
+        for _, row in display.iterrows():
+            desc = str(row["issue_description"])
+            table_rows.append({
+                "Ticket ID": row["ticket_id"],
+                "Description": desc[:80] + "..." if len(desc) > 80 else desc,
+                "Old label": row["current_label"],
+                "New category": row["new_category"],
+                "Confidence": row["confidence"],
+                "Reasoning": row["reasoning"]
+            })
 
-    if table_rows:
-        st.dataframe(
-            pd.DataFrame(table_rows),
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Ticket ID": st.column_config.TextColumn(width="small"),
-                "Description": st.column_config.TextColumn(width="large"),
-                "Old label": st.column_config.TextColumn(width="medium"),
-                "New category": st.column_config.TextColumn(width="medium"),
-                "Confidence": st.column_config.TextColumn(width="small"),
-                "Reasoning": st.column_config.TextColumn(width="large"),
-            }
+        if table_rows:
+            st.dataframe(
+                pd.DataFrame(table_rows),
+                use_container_width=True, hide_index=True,
+                column_config={
+                    "Ticket ID": st.column_config.TextColumn(width="small"),
+                    "Description": st.column_config.TextColumn(width="large"),
+                    "Old label": st.column_config.TextColumn(width="medium"),
+                    "New category": st.column_config.TextColumn(width="medium"),
+                    "Confidence": st.column_config.TextColumn(width="small"),
+                    "Reasoning": st.column_config.TextColumn(width="large"),
+                }
+            )
+        else:
+            st.info("No Low confidence rows found.")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Category distribution — primary ────────────────────────────────────────
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    with st.container():
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown(
+            "<p class='section-title'>Category Distribution</p>",
+            unsafe_allow_html=True
         )
-    else:
-        st.info("No Low confidence rows found.")
+        cat_counts = result_df["new_category"].value_counts()
+        st.plotly_chart(
+            make_chart(cat_counts.index.tolist(), cat_counts.values.tolist()),
+            use_container_width=True
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── Category distribution — single-bucket ──────────────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("**Category Distribution**")
-    cat_counts = result_df["new_category"].value_counts()
-    fig = make_chart(cat_counts.index.tolist(), cat_counts.values.tolist())
-    st.plotly_chart(fig, use_container_width=True)
-
-    # ── Category distribution — multi-tag (shown only after multi-tag run) ─────
-    if st.session_state.mt_run_complete and st.session_state.mt_df is not None:
-        mt_df = st.session_state.mt_df
+    # ── Category distribution — multi-tag (if full depth was run) ─────────────
+    if mt_df is not None:
         all_tags = []
         for tags_str in mt_df["multi_tags"]:
             if tags_str:
@@ -630,65 +945,68 @@ if st.session_state.step >= 4 and st.session_state.result_df is not None:
         if all_tags:
             tag_counts = Counter(all_tags)
             sorted_tags = sorted(tag_counts.items(), key=lambda x: -x[1])
-            mt_cats = [t[0] for t in sorted_tags]
-            mt_cnts = [t[1] for t in sorted_tags]
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown("**Category Distribution — Multi-tag view**")
-            st.caption(
-                "Each ticket mapped to all applicable themes. "
-                "A ticket may appear in multiple categories — counts will exceed total row count."
-            )
-            fig_mt = make_chart(
-                mt_cats, mt_cnts,
-                x_label="Tag occurrences (tickets may appear in multiple bars)"
-            )
-            st.plotly_chart(fig_mt, use_container_width=True)
+            st.markdown("<div style='height:8px'></div>",
+                        unsafe_allow_html=True)
+            with st.container():
+                st.markdown("<div class='section-card'>",
+                            unsafe_allow_html=True)
+                st.markdown(
+                    "<p class='section-title'>Category Distribution — Full theme mapping</p>",
+                    unsafe_allow_html=True
+                )
+                st.caption(
+                    "Each ticket mapped to all applicable themes. "
+                    "A ticket may appear in multiple bars — counts will exceed total row count."
+                )
+                st.plotly_chart(
+                    make_chart(
+                        [t[0] for t in sorted_tags],
+                        [t[1] for t in sorted_tags],
+                        x_label="Theme occurrences (tickets may appear in multiple bars)"
+                    ),
+                    use_container_width=True
+                )
+                st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── Results Summary — always shown ─────────────────────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("**Results Summary**")
-
-    c = consolidation or {}
-    narrative = c.get("narrative", "")
-    summaries = c.get("category_summaries", {})
-    transparency_log = c.get("transparency_log", [])
-    merge_flags = c.get("merge_flags", [])
-    uc_analysis = c.get("uncategorised_analysis", [])
-
+    # ── Results Summary ────────────────────────────────────────────────────────
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     with st.container():
-        st.markdown("<div class='summary-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown(
+            "<p class='section-title'>Results Summary</p>",
+            unsafe_allow_html=True
+        )
 
-        # Narrative
+        c = consolidation or {}
+        narrative = c.get("narrative", "")
+        summaries = c.get("category_summaries", {})
+        transparency_log = c.get("transparency_log", [])
+        merge_flags = c.get("merge_flags", [])
+        uc_analysis = c.get("uncategorised_analysis", [])
+        uc_count = len(result_df[result_df["new_category"] == "Uncategorised"])
+
         if narrative:
             st.markdown(
-                f"<p class='summary-narrative'>{narrative}</p>",
+                f"<p style='font-size:15px;color:#111827;line-height:1.7;margin-bottom:16px'>"
+                f"{narrative}</p>",
                 unsafe_allow_html=True
             )
 
-        # Category breakdown table
         if summaries:
             st.markdown(
-                "<p class='summary-section-title'>Category breakdown</p>",
-                unsafe_allow_html=True
-            )
-            breakdown_rows = []
+                "<p class='summary-label'>Category breakdown</p>", unsafe_allow_html=True)
+            rows_b = []
             for cat, summary in summaries.items():
                 if cat == "Uncategorised":
                     continue
                 count = len(result_df[result_df["new_category"] == cat])
-                total = len(result_df)
-                pct = f"{round(count/total*100)}%" if total else "—"
-                breakdown_rows.append({
-                    "Category": cat,
-                    "Tickets": count,
-                    "%": pct,
-                    "What it covers": summary
-                })
-            if breakdown_rows:
+                pct = f"{round(count/len(result_df)*100)}%" if len(result_df) else "—"
+                rows_b.append({"Category": cat, "Tickets": count,
+                              "%": pct, "What it covers": summary})
+            if rows_b:
                 st.dataframe(
-                    pd.DataFrame(breakdown_rows),
-                    use_container_width=True,
-                    hide_index=True,
+                    pd.DataFrame(rows_b),
+                    use_container_width=True, hide_index=True,
                     column_config={
                         "Category": st.column_config.TextColumn(width="medium"),
                         "Tickets": st.column_config.NumberColumn(width="small"),
@@ -697,119 +1015,65 @@ if st.session_state.step >= 4 and st.session_state.result_df is not None:
                     }
                 )
 
-        # Auto-merges
         if transparency_log:
             st.markdown(
-                "<p class='summary-section-title'>Auto-merges applied</p>",
-                unsafe_allow_html=True
-            )
+                "<p class='summary-label'>Auto-merges applied</p>", unsafe_allow_html=True)
             for entry in transparency_log:
                 st.markdown(
-                    f"<div class='merge-tag'>✓ {entry}</div><br>",
-                    unsafe_allow_html=True
-                )
+                    f"<div class='box-merge'>✓ {entry}</div>", unsafe_allow_html=True)
 
-        # Merge flags
         if merge_flags:
-            st.markdown(
-                "<p class='summary-section-title'>Flags to review</p>",
-                unsafe_allow_html=True
-            )
+            st.markdown("<p class='summary-label'>Flags to review</p>",
+                        unsafe_allow_html=True)
             for flag in merge_flags:
                 st.markdown(
-                    f"<div class='flag-tag'>⚠ {flag}</div>",
-                    unsafe_allow_html=True
-                )
+                    f"<div class='box-flag'>⚠ {flag}</div>", unsafe_allow_html=True)
 
-        # Uncategorised analysis
-        uc_count = len(result_df[result_df["new_category"] == "Uncategorised"])
         if uc_count == 0:
             st.markdown(
-                "<p class='summary-section-title'>Uncategorised bucket</p>",
-                unsafe_allow_html=True
-            )
-            st.markdown(
-                "<p style='font-size:13px;color:#555'>All tickets were categorised with sufficient confidence.</p>",
+                "<p class='summary-label'>Uncategorised bucket</p>"
+                "<p style='font-size:14px;color:#6b7280'>"
+                "All tickets were categorised with sufficient confidence.</p>",
                 unsafe_allow_html=True
             )
         elif uc_analysis:
             st.markdown(
-                f"<p class='summary-section-title'>Uncategorised bucket ({uc_count} tickets)</p>",
+                f"<p class='summary-label'>Uncategorised bucket ({uc_count} tickets)</p>",
                 unsafe_allow_html=True
             )
             for obs in uc_analysis:
                 st.markdown(
-                    f"<div class='uc-obs'>· {obs}</div>",
-                    unsafe_allow_html=True
-                )
+                    f"<div class='box-uc'>· {obs}</div>", unsafe_allow_html=True)
 
-        # Cross-theme signals — added after multi-tag run
-        if st.session_state.mt_run_complete and st.session_state.mt_df is not None:
-            mt_df = st.session_state.mt_df
-            all_tags = []
-            for tags_str in mt_df["multi_tags"]:
-                if tags_str:
-                    all_tags.extend([t.strip() for t in tags_str.split("|")])
-            if all_tags:
-                tag_counts = Counter(all_tags)
-                top3 = sorted(tag_counts.items(), key=lambda x: -x[1])[:3]
+        # Cross-theme signals from full theme mapping
+        if mt_df is not None and all_tags:
+            top3 = sorted(tag_counts.items(), key=lambda x: -x[1])[:3]
+            st.markdown(
+                "<p class='summary-label'>Cross-theme signals</p>", unsafe_allow_html=True)
+            for cat, count in top3:
+                pct = round(count / len(mt_df) * 100)
                 st.markdown(
-                    "<p class='summary-section-title'>Cross-theme signals (multi-tag)</p>",
+                    f"<div class='box-mt'><strong>{cat}</strong> — "
+                    f"appears across {count} tickets ({pct}%) in multiple themes</div>",
                     unsafe_allow_html=True
                 )
-                for cat, count in top3:
-                    pct = round(count / len(mt_df) * 100)
-                    st.markdown(
-                        f"<div class='mt-signal'><strong>{cat}</strong> — "
-                        f"appears in {count} tickets ({pct}%) across multiple categories</div>",
-                        unsafe_allow_html=True
-                    )
-        elif not st.session_state.mt_run_complete:
-            st.markdown(
-                "<p style='font-size:12px;color:#999;margin-top:0.75rem'>"
-                "Run the multi-tag analysis below to see cross-theme signals.</p>",
-                unsafe_allow_html=True
-            )
 
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── Multi-tag run button ───────────────────────────────────────────────────
-    if not st.session_state.mt_run_complete:
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("**Advanced multi-tag view**")
-        st.caption(
-            "Map each ticket to all applicable themes — not just the primary one. "
-            "Adds ~60–90 seconds."
+    # ── Download ───────────────────────────────────────────────────────────────
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    download_df = mt_df if mt_df is not None else result_df.copy()
+    if "multi_tags" not in download_df.columns:
+        download_df = download_df.copy()
+        download_df["multi_tags"] = ""
+
+    dl_col, _ = st.columns([2, 6])
+    with dl_col:
+        st.download_button(
+            label="⬇ Download CSV",
+            data=download_df.to_csv(index=False).encode("utf-8"),
+            file_name="categorised_tickets.csv",
+            mime="text/csv",
+            key="dl_btn",
+            use_container_width=True
         )
-        if st.button("Run advanced multi-tag view", key="mt_run_btn"):
-            with st.spinner("Running multi-tag analysis..."):
-                final_cats = [
-                    c for c in result_df["new_category"].unique()
-                    if c != "Uncategorised"
-                ]
-                mt_df = run_multi_tag(
-                    df=result_df,
-                    context=st.session_state.context,
-                    categories=final_cats
-                )
-                st.session_state.mt_df = mt_df
-                st.session_state.mt_run_complete = True
-                st.rerun()
-
-    # ── Download CSV ───────────────────────────────────────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.session_state.mt_df is not None:
-        download_df = st.session_state.mt_df
-    else:
-        download_df = result_df.copy()
-        if "multi_tags" not in download_df.columns:
-            download_df["multi_tags"] = ""
-
-    csv_bytes = download_df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="⬇ Download CSV",
-        data=csv_bytes,
-        file_name="categorised_tickets.csv",
-        mime="text/csv",
-        key="dl_bottom"
-    )
