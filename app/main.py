@@ -40,12 +40,15 @@ html, body, [class*="css"] {
     background-color: #f3f4f6;
 }
 .block-container {
-    padding-top: 2rem;
+    padding-top: 1rem;
     padding-bottom: 3rem;
     max-width: 900px;
     background: #f3f4f6;
 }
-
+header[data-testid="stHeader"] { display: none; }
+#MainMenu { display: none; }
+footer { display: none; }
+            
 /* ── Section cards ── */
 .section-card {
     background: #ffffff;
@@ -150,6 +153,16 @@ div[data-testid="column"] {
     padding-left: 4px !important;
     padding-right: 4px !important;
 }
+/* Mandatory context field — red outline */
+div[data-testid="stTextInput"] input {
+    border: 1.5px solid #ef4444 !important;
+    font-size: 15px !important;
+}
+div[data-testid="stTextInput"] input:focus {
+    border: 2px solid #dc2626 !important;
+    box-shadow: 0 0 0 3px rgba(220,38,38,0.15) !important;
+}
+            
 </style>
 """, unsafe_allow_html=True)
 
@@ -161,7 +174,8 @@ GREY = "#d1d5db"
 
 def init_state():
     defaults = {
-        "stage": "input",        # input | processing | results
+        "stage": "input",
+        "uploader_key": 0,        # input | processing | results
         "sample_key": None,
         "df": None,
         "context": "",
@@ -185,9 +199,11 @@ init_state()
 
 
 def reset_all():
+    current_key = st.session_state.get("uploader_key", 0)
     for k in list(st.session_state.keys()):
         del st.session_state[k]
     init_state()
+    st.session_state.uploader_key = current_key + 1
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -196,12 +212,21 @@ def make_chart(categories, counts, x_label="Ticket count"):
     total = sum(counts)
     pcts = [f"{c} ({round(c/total*100)}%)" if total else str(c)
             for c in counts]
-    colors, ti = [], 0
+    # Count named (non-Uncategorised) categories for gradient calculation
+    named_count = sum(1 for c in categories if c != "Uncategorised")
+    colors = []
+    ti = 0
     for cat in categories:
         if cat == "Uncategorised":
             colors.append(GREY)
         else:
-            colors.append(TEAL[ti % len(TEAL)])
+            # Interpolate from darkest (#0f766e) to lightest (#ccfbf1)
+            # across however many named categories exist
+            ratio = ti / max(named_count - 1, 1)
+            r = int(0x0f + ratio * (0xcc - 0x0f))
+            g = int(0x76 + ratio * (0xfb - 0x76))
+            b = int(0x6e + ratio * (0xf1 - 0x6e))
+            colors.append(f"#{r:02x}{g:02x}{b:02x}")
             ti += 1
     fig = go.Figure(go.Bar(
         x=counts, y=categories, orientation="h",
@@ -242,26 +267,25 @@ def append_log(log_placeholder, lines, new_line):
 # ══════════════════════════════════════════════════════════════════════════════
 
 # Title row — title on left, Start over on right, no wrapping
-title_col, reset_col = st.columns([6, 1])
+title_col, reset_col = st.columns([5, 1])
 with title_col:
-    st.markdown(
-        "<p class='tool-title'>🗂️ llm-issue-categorizer</p>",
-        unsafe_allow_html=True
-    )
+    st.title("🗂️ llm-issue-categorizer")
 with reset_col:
+    st.write("")
+    st.write("")
+    st.write("")
     if st.button("↺ Start over", key="reset_btn"):
         reset_all()
         st.rerun()
 
-# Description row — full width, no interaction with title row
 st.markdown(
-    "<p class='tool-tagline'>Your ops tickets say \"quality issue.\" "
+    "<p class='tool-tagline' style='margin-top:2px'>Your ops tickets say \"quality issue.\" "
     "This tool tells you what that actually means — and how often.</p>",
     unsafe_allow_html=True
 )
 st.markdown(
     "<p class='attr-line'>Built by <strong>Saurabh Das</strong> — "
-    "Senior TPM at Microsoft AI, documenting an AI learning journey in public.&nbsp;"
+    "Senior TPM & Designated PM at Microsoft AI, documenting an AI learning journey in public.&nbsp;"
     "<a href='https://linkedin.com/in/saurabhdas7' target='_blank'>LinkedIn</a>"
     "<a href='https://github.com/saurabh-das7/llm-issue-categorizer' target='_blank'>GitHub</a>"
     "<a href='https://github.com/saurabh-das7/llm-issue-categorizer' target='_blank'>Project repo</a>"
@@ -290,17 +314,18 @@ Export the full annotated dataset as a CSV — with primary category, confidence
 reasoning, and (if Full theme mapping was selected) all applicable themes per ticket.
     """)
 
-st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+st.divider()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 1 — Choose your data
 # ══════════════════════════════════════════════════════════════════════════════
 
-with st.container():
-    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    st.markdown("<p class='section-title'>Choose your data</p>",
-                unsafe_allow_html=True)
+if st.session_state.stage == "input":
+    st.markdown(
+        "<p class='section-title'>Choose your data</p>",
+        unsafe_allow_html=True
+    )
     st.markdown(
         "<p class='section-subtitle'>Try a sample dataset or upload your own file</p>",
         unsafe_allow_html=True
@@ -338,12 +363,12 @@ with st.container():
     )
 
     st.markdown("""
-<div class='box-warning'>
-⚠️ <strong>Do not upload files containing personal data, customer PII, or confidential
-business information.</strong> Data is processed by the Google Gemini API and subject
-to Google's data handling policies.
-</div>
-""", unsafe_allow_html=True)
+        <div class='box-warning'>
+⚠️      <strong>Do not upload files containing personal data, customer PII, or confidential
+        business information.</strong> Data is processed by the Google Gemini API and subject
+        to Google's data handling policies.
+        </div>
+        """, unsafe_allow_html=True)
 
     st.markdown(
         "<p style='font-size:14px;color:#374151;margin:0 0 4px 0'>"
@@ -361,7 +386,8 @@ to Google's data handling policies.
     with up_col:
         uploaded_file = st.file_uploader(
             "Upload", type=["csv", "xlsx", "txt"],
-            key="file_uploader", label_visibility="collapsed"
+            key=f"file_uploader_{st.session_state.uploader_key}",
+            label_visibility="collapsed"
         )
     with tmpl_col:
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
@@ -381,32 +407,39 @@ to Google's data handling policies.
             upload_error = error
             st.error(error)
         else:
-            st.session_state.sample_key = None
-            sample_contexts = [get_sample_context(k) for k in SAMPLES]
-            if st.session_state.context in sample_contexts:
-                st.session_state.context = ""
-            st.session_state.df = df
-            st.session_state.stage = "input"
-            st.session_state.result_df = None
-            st.session_state.consolidation = None
-            st.session_state.mt_df = None
-            st.session_state.progress_log = []
+            # Only update df if it's a new file (different from what's already loaded)
+            if st.session_state.df is None or len(df) != len(st.session_state.df):
+                st.session_state.sample_key = None
+                sample_contexts = [get_sample_context(k) for k in SAMPLES]
+                if st.session_state.context in sample_contexts:
+                    st.session_state.context = ""
+                st.session_state.df = df
+                st.session_state.stage = "input"
+                st.session_state.result_df = None
+                st.session_state.consolidation = None
+                st.session_state.mt_df = None
 
     # Context field
     if st.session_state.df is not None and upload_error is None:
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        st.markdown(
+            "<p style='font-size:15px;font-weight:600;color:#111827;margin:0 0 4px 0'>"
+            "What kind of data is this? "
+            "<span style='color:#ef4444'>*</span>"
+            " <span style='font-size:13px;font-weight:400;color:#6b7280'>"
+            "(required — helps the LLM categorise accurately)</span></p>",
+            unsafe_allow_html=True
+        )
         ctx = st.text_input(
-            "What kind of data is this? *",
+            "context",
             value=st.session_state.context,
-            placeholder="e.g. Support tickets for a logistics ops team",
-            help="Passed to the LLM with every prompt for domain-aware categorisation.",
+            placeholder="e.g. Closure notes from an Ads monitoring system",
+            label_visibility="collapsed",
             key="ctx_input"
         )
         st.session_state.context = ctx
         st.success(
             f"✅ {len(st.session_state.df)} rows loaded — ready to proceed")
-
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -414,7 +447,19 @@ to Google's data handling policies.
 # ══════════════════════════════════════════════════════════════════════════════
 
 if st.session_state.df is not None:
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    st.divider()
+    if st.session_state.stage != "input":
+        row_count = len(st.session_state.df)
+        sample_name = ""
+        if st.session_state.sample_key:
+            sample_name = SAMPLES[st.session_state.sample_key]["label"]
+        else:
+            sample_name = "Uploaded file"
+        st.markdown(
+            f"<div class='mode-badge'>✅ <strong>Data:</strong> "
+            f"{sample_name} — {row_count} rows</div>",
+            unsafe_allow_html=True
+        )
 
     # After run: show locked summary badge
     if st.session_state.stage == "results" and st.session_state.result_df is not None:
@@ -440,7 +485,6 @@ if st.session_state.df is not None:
     # Before run: full configuration UI
     elif st.session_state.stage == "input":
         with st.container():
-            st.markdown("<div class='section-card'>", unsafe_allow_html=True)
             st.markdown(
                 "<p class='section-title'>Configure your run</p>",
                 unsafe_allow_html=True
@@ -636,18 +680,44 @@ if st.session_state.df is not None:
                 st.session_state.progress_log = []
                 st.rerun()
 
-            st.markdown("</div>", unsafe_allow_html=True)
-
-
+st.divider()
 # ══════════════════════════════════════════════════════════════════════════════
 # PROCESSING
 # ══════════════════════════════════════════════════════════════════════════════
 
 if st.session_state.stage == "processing":
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    # Locked badges so processing renders below them, not at top of page
+    row_count = len(
+        st.session_state.df) if st.session_state.df is not None else 0
+    if st.session_state.sample_key:
+        data_name = SAMPLES[st.session_state.sample_key]["label"]
+    else:
+        data_name = "Uploaded file"
+    st.markdown(
+        f"<div class='mode-badge'>✅ <strong>Data:</strong> {data_name} — {row_count} rows</div>",
+        unsafe_allow_html=True
+    )
+    st.divider()
+
+    cat_mode_labels = {
+        "no_suggestions": "No suggestions",
+        "manual_list": "Manual list",
+        "auto_suggest": "Auto-suggest"
+    }
+    depth_labels = {
+        "primary": "Primary category only",
+        "full": "Full theme mapping"
+    }
+    cm = cat_mode_labels.get(st.session_state.cat_mode, "")
+    dp = depth_labels.get(st.session_state.depth, "")
+    st.markdown(
+        f"<div class='mode-badge'>✅ <strong>Configure your run:</strong> {cm} · {dp}</div>",
+        unsafe_allow_html=True
+    )
+    st.divider()
 
     with st.container():
-        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
         st.markdown("<p class='section-title'>Processing</p>",
                     unsafe_allow_html=True)
 
@@ -664,8 +734,6 @@ if st.session_state.stage == "processing":
 
         progress_bar = st.progress(0.0)
         status_el = st.empty()
-        log_el = st.empty()
-        log_lines = []
 
         def update_progress(label, log_line=None):
             step_counter[0] += 1
@@ -765,10 +833,11 @@ if st.session_state.stage == "processing":
                 f"Categorising batch {batch_num + 1} of {total_batches}...</p>",
                 unsafe_allow_html=True
             )
-            log_lines = append_log(
-                log_el, log_lines,
-                f"✓ Batch {batch_num + 1} of {total_batches} — "
-                f"{current_cats} {'category' if current_cats == 1 else 'categories'} identified so far"
+            status_el.markdown(
+                f"<p style='font-size:14px;color:#374151;margin:6px 0'>"
+                f"Categorising batch {batch_num + 1} of {total_batches} — "
+                f"{current_cats} {'category' if current_cats == 1 else 'categories'} identified so far</p>",
+                unsafe_allow_html=True
             )
 
             if batch_num < total_batches - 1:
@@ -792,9 +861,10 @@ if st.session_state.stage == "processing":
             "Uncategorised", None).dropna().nunique()
         merge_count = len(consolidation.get("transparency_log", []))
         merge_note = f", {merge_count} auto-merge{'s' if merge_count != 1 else ''} applied" if merge_count else ""
-        log_lines = append_log(
-            log_el, log_lines,
-            f"✓ Consolidation complete — {final_cat_count} final categories{merge_note}"
+        status_el.markdown(
+            f"<p style='font-size:14px;color:#374151;margin:6px 0'>"
+            f"Consolidation complete — {final_cat_count} final categories{merge_note}</p>",
+            unsafe_allow_html=True
         )
 
         # ── Phase 3: Multi-tag (if full depth) ────────────────────────────────
@@ -835,9 +905,10 @@ if st.session_state.stage == "processing":
                     f"Mapping themes — batch {batch_num + 1} of {total_batches}...</p>",
                     unsafe_allow_html=True
                 )
-                log_lines = append_log(
-                    log_el, log_lines,
-                    f"✓ Theme mapping batch {batch_num + 1} of {total_batches} complete"
+                status_el.markdown(
+                    f"<p style='font-size:14px;color:#374151;margin:6px 0'>"
+                    f"Mapping themes — batch {batch_num + 1} of {total_batches} complete</p>",
+                    unsafe_allow_html=True
                 )
 
                 if batch_num < total_batches - 1:
@@ -849,13 +920,14 @@ if st.session_state.stage == "processing":
             "<p style='font-size:14px;font-weight:600;color:#0f766e;margin:6px 0'>✅ Complete</p>",
             unsafe_allow_html=True
         )
-        log_lines = append_log(log_el, log_lines, "━━ Run complete ━━")
-
+        status_el.markdown(
+            "<p style='font-size:14px;font-weight:600;color:#0f766e;margin:6px 0'>✅ Complete</p>",
+            unsafe_allow_html=True
+        )
         st.session_state.result_df = result_df
         st.session_state.consolidation = consolidation
         st.session_state.mt_df = mt_df
         st.session_state.stage = "results"
-        st.markdown("</div>", unsafe_allow_html=True)
         _time.sleep(0.8)
         st.rerun()
 
@@ -873,7 +945,6 @@ if st.session_state.stage == "results" and st.session_state.result_df is not Non
     total_rows = len(result_df)
 
     with st.container():
-        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
         st.markdown(
             f"<p class='section-title'>✅ Results — {total_rows} tickets processed</p>",
             unsafe_allow_html=True
@@ -919,12 +990,9 @@ if st.session_state.stage == "results" and st.session_state.result_df is not Non
         else:
             st.info("No Low confidence rows found.")
 
-        st.markdown("</div>", unsafe_allow_html=True)
-
     # ── Category distribution — primary ────────────────────────────────────────
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     with st.container():
-        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
         st.markdown(
             "<p class='section-title'>Category Distribution</p>",
             unsafe_allow_html=True
@@ -934,7 +1002,6 @@ if st.session_state.stage == "results" and st.session_state.result_df is not Non
             make_chart(cat_counts.index.tolist(), cat_counts.values.tolist()),
             use_container_width=True
         )
-        st.markdown("</div>", unsafe_allow_html=True)
 
     # ── Category distribution — multi-tag (if full depth was run) ─────────────
     if mt_df is not None:
@@ -948,8 +1015,6 @@ if st.session_state.stage == "results" and st.session_state.result_df is not Non
             st.markdown("<div style='height:8px'></div>",
                         unsafe_allow_html=True)
             with st.container():
-                st.markdown("<div class='section-card'>",
-                            unsafe_allow_html=True)
                 st.markdown(
                     "<p class='section-title'>Category Distribution — Full theme mapping</p>",
                     unsafe_allow_html=True
@@ -966,12 +1031,10 @@ if st.session_state.stage == "results" and st.session_state.result_df is not Non
                     ),
                     use_container_width=True
                 )
-                st.markdown("</div>", unsafe_allow_html=True)
 
     # ── Results Summary ────────────────────────────────────────────────────────
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     with st.container():
-        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
         st.markdown(
             "<p class='section-title'>Results Summary</p>",
             unsafe_allow_html=True
@@ -1057,8 +1120,6 @@ if st.session_state.stage == "results" and st.session_state.result_df is not Non
                     f"appears across {count} tickets ({pct}%) in multiple themes</div>",
                     unsafe_allow_html=True
                 )
-
-        st.markdown("</div>", unsafe_allow_html=True)
 
     # ── Download ───────────────────────────────────────────────────────────────
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)

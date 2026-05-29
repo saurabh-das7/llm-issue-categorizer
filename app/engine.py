@@ -59,7 +59,12 @@ def parse_file(file):
         filename = file.name.lower()
 
         if filename.endswith(".csv"):
-            df = pd.read_csv(file)
+            # Try UTF-8 first, fall back to Windows-1252 (common in Excel exports)
+            try:
+                df = pd.read_csv(file)
+            except UnicodeDecodeError:
+                file.seek(0)
+                df = pd.read_csv(file, encoding="windows-1252")
         elif filename.endswith(".xlsx"):
             df = pd.read_excel(file, engine="openpyxl")
         elif filename.endswith(".txt"):
