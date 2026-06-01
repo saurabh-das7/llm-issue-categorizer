@@ -3,6 +3,9 @@
 .env.local
 *.env
 
+# Streamlit secrets (never commit API keys)
+.streamlit/secrets.toml
+
 # Python
 __pycache__/
 *.py[cod]
@@ -30,9 +33,7 @@ env/
 .DS_Store
 Thumbs.db
 
-# Streamlit
-.streamlit/secrets.toml
-
-# Test outputs
+# Test and local outputs
 test_output/
 *.csv.test
+categorised_tickets.csv
